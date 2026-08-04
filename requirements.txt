@@ -1,0 +1,4 @@
+pyTelegramBotAPI==4.15.2
+google-genai
+python-dotenv
+requests
