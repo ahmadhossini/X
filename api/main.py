@@ -14,12 +14,12 @@ def startup() -> None:
 
 
 @app.get("/")
-def root() -> dict:
+def root() -> dict[str, str]:
     return {"name": "XAI MASTER", "status": "online"}
 
 
 @app.get("/health")
-def health() -> dict:
+def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
