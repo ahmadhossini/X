@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: xai-master
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: SPONSOR_CHANNEL
+        sync: false
+      - key: DATABASE_URL
+        value: sqlite:///./xai_master.db
+      - key: API_PORT
+        value: 10000
