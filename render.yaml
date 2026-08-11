@@ -14,6 +14,6 @@ services:
       - key: SPONSOR_CHANNEL
         sync: false
       - key: DATABASE_URL
-        value: sqlite:///./xai_master.db
-      - key: API_PORT
-        value: 10000
+        sync: false
+      - key: MARKET_CACHE_SECONDS
+        value: "60"
