@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from time import monotonic
+from time import monotonic, time
 
 from telebot import TeleBot
-from telebot.types import Message
+from telebot.types import ChatPermissions, Message
 
 from ai.moderation import moderation_engine
 
@@ -16,6 +16,8 @@ class GroupModeration:
         self._warnings: dict[tuple[int, int], int] = defaultdict(int)
 
     def is_admin(self, message: Message) -> bool:
+        if not message.from_user:
+            return True
         try:
             member = self.bot.get_chat_member(message.chat.id, message.from_user.id)
             return member.status in {"administrator", "creator"}
@@ -23,7 +25,7 @@ class GroupModeration:
             return False
 
     def handle(self, message: Message) -> bool:
-        if not message.text or self.is_admin(message):
+        if not message.text or not message.from_user or self.is_admin(message):
             return False
 
         key = (message.chat.id, message.from_user.id)
@@ -36,19 +38,20 @@ class GroupModeration:
         if moderation_engine.contains_link(message.text):
             try:
                 self.bot.delete_message(message.chat.id, message.message_id)
-                self.warn(message.chat.id, message.from_user.id, "ارسال لینک")
-                return True
             except Exception:
                 return False
+            self.warn(message.chat.id, message.from_user.id, "ارسال لینک")
+            return True
 
-        if len(bucket) >= 8:
+        if moderation_engine.looks_like_flood(len(bucket)):
             try:
                 self.bot.restrict_chat_member(
                     message.chat.id,
                     message.from_user.id,
                     permissions=self._mute_permissions(),
-                    until_date=int(now + 60),
+                    until_date=int(time()) + 60,
                 )
+                self.warn(message.chat.id, message.from_user.id, "ارسال پیام‌های متوالی")
                 return True
             except Exception:
                 return False
@@ -60,7 +63,5 @@ class GroupModeration:
         return self._warnings[key]
 
     @staticmethod
-    def _mute_permissions():
-        from telebot.types import ChatPermissions
-
+    def _mute_permissions() -> ChatPermissions:
         return ChatPermissions(can_send_messages=False)
