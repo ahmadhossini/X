@@ -24,6 +24,7 @@ class Settings:
     market_cache_seconds: int = int(os.getenv("MARKET_CACHE_SECONDS", "60"))
     api_host: str = os.getenv("API_HOST", "0.0.0.0")
     api_port: int = int(os.getenv("PORT", os.getenv("API_PORT", "10000")))
+    miniapp_url: str = os.getenv("MINIAPP_URL", "")
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "admin_ids", _int_set(os.getenv("ADMIN_IDS")))
