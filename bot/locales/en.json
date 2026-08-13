@@ -1,0 +1,9 @@
+{
+  "choose_language": "Please select your language:",
+  "welcome": "Hello {name}\n\nWelcome to XAI MASTER.\n\nAn intelligent Telegram group manager with AI and security features.",
+  "features": "Features:\n\n• Anti Spam\n• Anti Link\n• Anti Flood\n• Dangerous Content Filter\n• Member Management\n• AI Manager\n• Professional Dashboard",
+  "add_group": "• Add Bot To Group",
+  "dashboard": "• Dashboard",
+  "support": "• Support Channel",
+  "admin": "Add the bot to your group and give Admin permission to enable full protection."
+}
