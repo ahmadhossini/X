@@ -7,6 +7,7 @@ from telebot import TeleBot
 from telebot.types import ChatPermissions, Message
 
 from ai.moderation import moderation_engine
+from bot.services.group_settings_store import store
 
 
 class GroupModeration:
@@ -24,8 +25,20 @@ class GroupModeration:
         except Exception:
             return False
 
+    def _delete(self, message: Message) -> bool:
+        try:
+            self.bot.delete_message(message.chat.id, message.message_id)
+            return True
+        except Exception:
+            return False
+
     def handle(self, message: Message) -> bool:
-        if not message.text or not message.from_user or self.is_admin(message):
+        if not message.from_user or self.is_admin(message):
+            return False
+
+        cfg = store.get(message.chat.id)
+        text = message.text or message.caption or ""
+        if not text and message.content_type not in {"text", "photo", "video", "animation", "audio", "voice", "document", "sticker"}:
             return False
 
         key = (message.chat.id, message.from_user.id)
@@ -35,15 +48,42 @@ class GroupModeration:
         while bucket and now - bucket[0] > 10:
             bucket.popleft()
 
-        if moderation_engine.contains_link(message.text):
-            try:
-                self.bot.delete_message(message.chat.id, message.message_id)
-            except Exception:
-                return False
-            self.warn(message.chat.id, message.from_user.id, "ارسال لینک")
-            return True
+        if cfg.anti_link and moderation_engine.contains_link(text):
+            if self._delete(message):
+                self.warn(message.chat.id, message.from_user.id, "ارسال لینک")
+                return True
 
-        if moderation_engine.looks_like_flood(len(bucket)):
+        if cfg.mention_lock and moderation_engine.contains_mention(text):
+            if self._delete(message):
+                self.warn(message.chat.id, message.from_user.id, "Mention")
+                return True
+
+        if cfg.hashtag_lock and moderation_engine.contains_hashtag(text):
+            if self._delete(message):
+                self.warn(message.chat.id, message.from_user.id, "Hashtag")
+                return True
+
+        if cfg.phone_lock and moderation_engine.contains_phone(text):
+            if self._delete(message):
+                self.warn(message.chat.id, message.from_user.id, "شماره تلفن")
+                return True
+
+        if cfg.profanity_filter and moderation_engine.contains_profanity(text):
+            if self._delete(message):
+                self.warn(message.chat.id, message.from_user.id, "الفاظ نامناسب")
+                return True
+
+        if cfg.drug_filter and moderation_engine.contains_drug_content(text):
+            if self._delete(message):
+                self.warn(message.chat.id, message.from_user.id, "محتوای مواد مخدر")
+                return True
+
+        if cfg.nsfw_filter and moderation_engine.contains_nsfw_content(text):
+            if self._delete(message):
+                self.warn(message.chat.id, message.from_user.id, "محتوای جنسی")
+                return True
+
+        if cfg.anti_flood and moderation_engine.looks_like_flood(len(bucket)):
             try:
                 self.bot.restrict_chat_member(
                     message.chat.id,
