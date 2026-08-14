@@ -12,7 +12,6 @@ from bot.services.language_service import get_text
 from core.config import settings
 
 logger = logging.getLogger(__name__)
-
 SUPPORT_URL = "https://t.me/XAIMASTER_Official"
 
 
@@ -22,39 +21,24 @@ def lang_for(message: Message) -> str | None:
 
 def choose_language_keyboard() -> types.InlineKeyboardMarkup:
     markup = types.InlineKeyboardMarkup()
-    markup.row(
-        types.InlineKeyboardButton("• فارسی", callback_data="lang:fa"),
-        types.InlineKeyboardButton("• English", callback_data="lang:en"),
-    )
+    markup.row(types.InlineKeyboardButton("• فارسی", callback_data="lang:fa"), types.InlineKeyboardButton("• English", callback_data="lang:en"))
     return markup
 
 
 def start_keyboard(lang: str) -> types.InlineKeyboardMarkup:
     markup = types.InlineKeyboardMarkup()
-    bot_username = settings.bot_username or "XAI_MASTER_BOT"
-    miniapp_url = getattr(settings, "miniapp_url", "")
-    markup.add(types.InlineKeyboardButton(
-        get_text(lang, "add_group"),
-        url=f"https://t.me/{bot_username}?startgroup=true",
-    ))
+    bot_username = getattr(settings, "bot_username", "") or "XAI_MASTER_BOT"
+    miniapp_url = getattr(settings, "miniapp_url", "") or ""
+    markup.add(types.InlineKeyboardButton(get_text(lang, "add_group"), url=f"https://t.me/{bot_username}?startgroup=true"))
     if miniapp_url:
-        markup.add(types.InlineKeyboardButton(
-            get_text(lang, "dashboard"),
-            web_app=types.WebAppInfo(url=miniapp_url),
-        ))
+        markup.add(types.InlineKeyboardButton(get_text(lang, "dashboard"), web_app=types.WebAppInfo(url=miniapp_url)))
     markup.add(types.InlineKeyboardButton(get_text(lang, "support"), url=SUPPORT_URL))
     return markup
 
 
 def send_start(bot: TeleBot, message: Message, lang: str) -> None:
     name = message.from_user.first_name or "User"
-    text = (
-        get_text(lang, "welcome", name=name)
-        + "\n\n"
-        + get_text(lang, "features")
-        + "\n\n"
-        + get_text(lang, "admin")
-    )
+    text = get_text(lang, "welcome", name=name) + "\n\n" + get_text(lang, "features") + "\n\n" + get_text(lang, "admin")
     bot.send_message(message.chat.id, text, reply_markup=start_keyboard(lang), parse_mode="HTML")
 
 
@@ -67,7 +51,6 @@ def _target_from_reply(message: Message) -> Optional[int]:
 def build_bot() -> TeleBot:
     if not settings.bot_token:
         raise RuntimeError("BOT_TOKEN is not configured")
-
     bot = TeleBot(settings.bot_token, parse_mode="HTML")
     moderation = GroupModeration(bot)
 
@@ -80,7 +63,7 @@ def build_bot() -> TeleBot:
         except Exception:
             return False
 
-    @bot.message_handler(commands=["start", "help"])
+    @bot.message_handler(commands=["start"])
     def start(message: Message):
         lang = lang_for(message)
         if not lang:
@@ -88,20 +71,24 @@ def build_bot() -> TeleBot:
             return
         send_start(bot, message, lang)
 
+    @bot.message_handler(commands=["help"])
+    def help_command(message: Message):
+        send_start(bot, message, lang_for(message) or "fa")
+
     @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("lang:"))
     def language_callback(call):
         lang = call.data.split(":", 1)[1]
-        try:
-            set_user_language(call.from_user.id, lang)
-            send_start(bot, call.message, lang)
-            bot.answer_callback_query(call.id)
-        except Exception:
-            bot.answer_callback_query(call.id, "Language setup failed", show_alert=True)
+        if lang not in {"fa", "en"}:
+            bot.answer_callback_query(call.id, "Invalid language", show_alert=True)
+            return
+        set_user_language(call.from_user.id, lang)
+        bot.answer_callback_query(call.id)
+        send_start(bot, call.message, lang)
 
     @bot.message_handler(commands=["panel"])
     def panel(message: Message):
         lang = lang_for(message) or "fa"
-        url = getattr(settings, "miniapp_url", "")
+        url = getattr(settings, "miniapp_url", "") or ""
         if not url:
             bot.reply_to(message, get_text(lang, "panel_missing"))
             return
@@ -111,8 +98,7 @@ def build_bot() -> TeleBot:
 
     @bot.message_handler(commands=["market"])
     def market(message: Message):
-        lang = lang_for(message) or "fa"
-        bot.reply_to(message, get_text(lang, "market"))
+        bot.reply_to(message, get_text(lang_for(message) or "fa", "market"))
 
     @bot.message_handler(commands=["unmute", "رفع_محدودیت"])
     def unmute(message: Message):
@@ -175,13 +161,13 @@ def build_bot() -> TeleBot:
     @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("verify:"))
     def verify_callback(call):
         try:
-            _, chat_id, user_id = call.data.split(":", 2)
-            chat_id, user_id = int(chat_id), int(user_id)
+            _, chat_id_raw, user_id_raw = call.data.split(":", 2)
+            chat_id, user_id = int(chat_id_raw), int(user_id_raw)
             lang = lang_for(call.message) or "fa"
             if call.from_user.id != user_id:
                 bot.answer_callback_query(call.id, get_text(lang, "verify_wrong"), show_alert=True)
                 return
-            bot.restrict_chat_member(message.chat.id, user_id, can_send_messages=True)
+            bot.restrict_chat_member(chat_id, user_id, can_send_messages=True, can_send_audios=True, can_send_documents=True, can_send_photos=True, can_send_videos=True, can_send_video_notes=True, can_send_voice_notes=True, can_send_polls=True, can_send_other_messages=True, can_add_web_page_previews=True)
             bot.answer_callback_query(call.id, get_text(lang, "verified"))
             bot.edit_message_text(get_text(lang, "verified"), chat_id, call.message.message_id)
         except Exception:
