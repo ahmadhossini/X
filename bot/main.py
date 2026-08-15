@@ -6,6 +6,7 @@ from typing import Optional
 from telebot import TeleBot, types
 from telebot.types import Message
 
+from backend.chat_registry import registry
 from bot.services.moderation import GroupModeration
 from bot.services.user_language import get_user_language, set_user_language
 from bot.services.language_service import get_text
@@ -85,13 +86,24 @@ def build_bot() -> TeleBot:
         bot.answer_callback_query(call.id)
         send_start(bot, call.message, lang)
 
+    @bot.message_handler(content_types=["my_chat_member"])
+    def chat_membership_update(message: Message):
+        member = message.new_chat_member
+        if not member or message.chat.type not in {"group", "supergroup", "channel"}:
+            return
+        if member.user and member.user.id == bot.get_me().id and member.status in {"administrator", "member"}:
+            registry.upsert(message.chat.id, message.chat.title or "Untitled", message.chat.type, getattr(message.chat, "username", None))
+        elif member.user and member.user.id == bot.get_me().id and member.status in {"left", "kicked"}:
+            # The registry intentionally retains the record; authorization is
+            # rechecked live before every Mini App response.
+            logger.info("Bot removed from chat %s", message.chat.id)
+
     @bot.message_handler(commands=["panel"])
     def panel(message: Message):
         lang = lang_for(message) or "fa"
         url = getattr(settings, "miniapp_url", "") or ""
         if not url:
-            bot.reply_to(message, get_text(lang, "panel_missing"))
-            return
+            return bot.reply_to(message, get_text(lang, "panel_missing"))
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton(get_text(lang, "dashboard"), web_app=types.WebAppInfo(url=url)))
         bot.reply_to(message, "<b>XAI MASTER V3</b>", reply_markup=markup)
@@ -146,6 +158,7 @@ def build_bot() -> TeleBot:
     def verify_new_members(message: Message):
         if message.chat.type not in {"group", "supergroup"}:
             return
+        registry.upsert(message.chat.id, message.chat.title or "Untitled", message.chat.type, getattr(message.chat, "username", None))
         lang = lang_for(message) or "fa"
         for member in message.new_chat_members:
             if member.is_bot:
