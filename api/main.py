@@ -6,6 +6,8 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from backend.miniapp_api import router as miniapp_router
+from backend.miniapp_groups import router as groups_router
 from database.session import init_db
 from market.service import crypto_market
 
@@ -13,6 +15,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 MINIAPP_DIR = BASE_DIR / "miniapp"
 
 app = FastAPI(title="XAI MASTER API", version="3.0.0")
+app.include_router(miniapp_router)
+app.include_router(groups_router)
 
 if MINIAPP_DIR.exists():
     app.mount("/miniapp", StaticFiles(directory=MINIAPP_DIR, html=True), name="miniapp")
