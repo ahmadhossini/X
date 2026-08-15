@@ -4,7 +4,7 @@ import logging
 from typing import Optional
 
 from telebot import TeleBot, types
-from telebot.types import Message
+from telebot.types import Message, User
 
 from backend.chat_registry import registry
 from bot.services.moderation import GroupModeration
@@ -22,7 +22,10 @@ def lang_for(message: Message) -> str | None:
 
 def choose_language_keyboard() -> types.InlineKeyboardMarkup:
     markup = types.InlineKeyboardMarkup()
-    markup.row(types.InlineKeyboardButton("• فارسی", callback_data="lang:fa"), types.InlineKeyboardButton("• English", callback_data="lang:en"))
+    markup.row(
+        types.InlineKeyboardButton("• فارسی", callback_data="lang:fa"),
+        types.InlineKeyboardButton("• English", callback_data="lang:en"),
+    )
     return markup
 
 
@@ -37,10 +40,11 @@ def start_keyboard(lang: str) -> types.InlineKeyboardMarkup:
     return markup
 
 
-def send_start(bot: TeleBot, message: Message, lang: str) -> None:
-    name = message.from_user.first_name or "User"
+def send_start(bot: TeleBot, chat_id: int, user: User, lang: str) -> None:
+    # Never derive the user's name from callback.message.from_user: that is the bot.
+    name = user.first_name or user.username or "User"
     text = get_text(lang, "welcome", name=name) + "\n\n" + get_text(lang, "features") + "\n\n" + get_text(lang, "admin")
-    bot.send_message(message.chat.id, text, reply_markup=start_keyboard(lang), parse_mode="HTML")
+    bot.send_message(chat_id, text, reply_markup=start_keyboard(lang), parse_mode="HTML")
 
 
 def _target_from_reply(message: Message) -> Optional[int]:
@@ -68,13 +72,13 @@ def build_bot() -> TeleBot:
     def start(message: Message):
         lang = lang_for(message)
         if not lang:
-            bot.send_message(message.chat.id, "• لطفاً زبان را انتخاب کنید / Please select your language:", reply_markup=choose_language_keyboard())
+            bot.send_message(message.chat.id, get_text("fa", "choose_language") + "\n\n" + get_text("en", "choose_language"), reply_markup=choose_language_keyboard())
             return
-        send_start(bot, message, lang)
+        send_start(bot, message.chat.id, message.from_user, lang)
 
     @bot.message_handler(commands=["help"])
     def help_command(message: Message):
-        send_start(bot, message, lang_for(message) or "fa")
+        send_start(bot, message.chat.id, message.from_user, lang_for(message) or "fa")
 
     @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("lang:"))
     def language_callback(call):
@@ -84,7 +88,8 @@ def build_bot() -> TeleBot:
             return
         set_user_language(call.from_user.id, lang)
         bot.answer_callback_query(call.id)
-        send_start(bot, call.message, lang)
+        if call.message:
+            send_start(bot, call.message.chat.id, call.from_user, lang)
 
     @bot.message_handler(content_types=["my_chat_member"])
     def chat_membership_update(message: Message):
@@ -94,8 +99,6 @@ def build_bot() -> TeleBot:
         if member.user and member.user.id == bot.get_me().id and member.status in {"administrator", "member"}:
             registry.upsert(message.chat.id, message.chat.title or "Untitled", message.chat.type, getattr(message.chat, "username", None))
         elif member.user and member.user.id == bot.get_me().id and member.status in {"left", "kicked"}:
-            # The registry intentionally retains the record; authorization is
-            # rechecked live before every Mini App response.
             logger.info("Bot removed from chat %s", message.chat.id)
 
     @bot.message_handler(commands=["panel"])
@@ -184,7 +187,7 @@ def build_bot() -> TeleBot:
             bot.answer_callback_query(call.id, get_text(lang, "verified"))
             bot.edit_message_text(get_text(lang, "verified"), chat_id, call.message.message_id)
         except Exception:
-            bot.answer_callback_query(call.id, "Verification failed", show_alert=True)
+            bot.answer_callback_query(call.id, get_text("fa", "verify_fail"), show_alert=True)
 
     @bot.message_handler(content_types=["text"])
     def moderate(message: Message):
