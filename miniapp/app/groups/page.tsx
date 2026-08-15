@@ -1,42 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, type ManagedChat } from "../../lib/api";
+import AppShell from "../components/AppShell";
 
-const features = [
-  ["anti_spam", "Anti Spam"], ["anti_flood", "Anti Flood"], ["anti_link", "Anti Link"],
-  ["media_lock", "Media Lock"], ["forward_lock", "Forward Lock"], ["mention_lock", "Mention Lock"],
-  ["hashtag_lock", "Hashtag Lock"], ["phone_lock", "Phone Lock"], ["profanity_filter", "Banned Words"],
-  ["drug_filter", "Drug Filter"], ["nsfw_filter", "NSFW Filter"], ["force_join", "Force Join"],
-];
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 export default function GroupsPage() {
-  const [groups, setGroups] = useState<ManagedChat[]>([]);
-  const [selected, setSelected] = useState<ManagedChat | null>(null);
-  const [settings, setSettings] = useState<Record<string, boolean>>({});
+  const [groups, setGroups] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
-  useEffect(() => { api.groups().then((r) => setGroups(r.groups)).catch(() => setError("Unable to load groups")); }, []);
-  useEffect(() => { if (selected) api.settings(selected.id).then(setSettings).catch(() => setError("Unable to load settings")); }, [selected]);
-
-  async function toggle(feature: string) {
-    if (!selected) return;
-    const next = !settings[feature];
-    try {
-      const updated = await api.setSetting(selected.id, feature, next);
-      setSettings(updated);
-    } catch { setError("Unable to save setting"); }
-  }
-
-  return <main className="mx-auto min-h-screen max-w-md space-y-4 p-4 pb-10">
-    <h1 className="text-xl font-semibold">Groups & Channels</h1>
-    {error && <div className="rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-sm">{error}</div>}
-    {!selected && groups.map((chat) => <button key={chat.id} onClick={() => setSelected(chat)} className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 p-4 text-left"><span><b>{chat.title}</b><small className="mt-1 block text-[var(--muted)]">{chat.type}</small></span><span>•</span></button>)}
-    {!selected && groups.length === 0 && !error && <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-[var(--muted)]">No managed groups found.</div>}
-    {selected && <section className="space-y-3">
-      <button onClick={() => setSelected(null)} className="text-sm text-[var(--muted)]">• Back</button>
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><h2 className="font-semibold">{selected.title}</h2><p className="text-xs text-[var(--muted)]">{selected.type}</p></div>
-      {features.map(([key, label]) => <button key={key} onClick={() => toggle(key)} className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 p-4"><span className="text-sm">{label}</span><span className={settings[key] ? "text-[var(--accent)]" : "text-[var(--muted)]"}>{settings[key] ? "• ON" : "• OFF"}</span></button>)}
-    </section>}
-  </main>;
+  useEffect(() => {
+    const tg = (window as Window & { Telegram?: { WebApp?: any } }).Telegram?.WebApp;
+    tg?.ready?.();
+    fetch(`${API_BASE}/api/miniapp/groups`, { headers: { "X-Telegram-Init-Data": tg?.initData ?? "" }, cache: "no-store" })
+      .then(async r => { if (!r.ok) throw new Error("Unable to load groups"); return r.json(); })
+      .then(d => setGroups(d.groups ?? []))
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+  return <AppShell><section className="space-y-4"><div className="rounded-3xl border border-white/10 bg-[var(--surface)] p-6"><p className="text-xs text-[var(--muted)]">XAI MASTER</p><h2 className="mt-2 text-2xl font-semibold">Groups & Channels</h2><p className="mt-2 text-sm text-[var(--muted)]">Only chats where your Telegram account has management access appear here.</p></div>{loading && <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-[var(--muted)]">Loading...</div>}{error && <div className="rounded-2xl border border-red-400/20 bg-red-400/10 p-5 text-sm">{error}</div>}{!loading && !error && groups.length === 0 && <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-[var(--muted)]">No managed groups or channels found.</div>}{groups.map(g => <button key={g.id} className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 p-4 text-left"><div><p className="font-semibold">{g.title}</p><p className="mt-1 text-xs text-[var(--muted)]">{g.type ?? "chat"}</p></div><span className="text-xs text-[var(--muted)]">• Manage</span></button>)}</section></AppShell>;
 }
