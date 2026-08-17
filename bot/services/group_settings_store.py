@@ -10,7 +10,6 @@ from typing import Any
 
 @dataclass
 class GroupSettings:
-    # Text/security rules
     anti_spam: bool = True
     anti_flood: bool = True
     anti_link: bool = True
@@ -21,8 +20,6 @@ class GroupSettings:
     profanity_filter: bool = True
     drug_filter: bool = True
     nsfw_filter: bool = True
-
-    # Media locks
     photo_lock: bool = False
     video_lock: bool = False
     document_lock: bool = False
@@ -34,8 +31,6 @@ class GroupSettings:
     poll_lock: bool = False
     location_lock: bool = False
     contact_lock: bool = False
-
-    # Member/group automation
     force_join: bool = False
     welcome: bool = True
     goodbye: bool = True
@@ -47,8 +42,6 @@ class GroupSettings:
     auto_answer: bool = False
     ai_chat: bool = True
     statistics: bool = True
-
-    # Moderation policy
     warning_limit: int = 3
     flood_messages: int = 8
     flood_window_seconds: int = 10
@@ -56,7 +49,6 @@ class GroupSettings:
     repeat_message_limit: int = 3
 
 
-# Backward-compatible aliases accepted by the API/UI from older V3 builds.
 ALIASES: dict[str, str] = {
     "media_lock": "photo_lock",
     "lock_media": "photo_lock",
@@ -110,7 +102,13 @@ class GroupSettingsStore:
             value = max(0, int(value))
         with _LOCK:
             data = self._load()
-            current = asdict(self.get(chat_id))
+            raw = data.get(str(chat_id), {})
+            current = asdict(GroupSettings())
+            if isinstance(raw, dict):
+                for key, raw_value in raw.items():
+                    canonical = ALIASES.get(key, key)
+                    if canonical in current:
+                        current[canonical] = raw_value
             current[feature] = value
             data[str(chat_id)] = current
             self._save(data)
