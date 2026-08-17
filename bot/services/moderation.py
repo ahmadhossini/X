@@ -38,8 +38,14 @@ class GroupModeration:
 
         cfg = store.get(message.chat.id)
         text = message.text or message.caption or ""
+
         if not text and message.content_type not in {"text", "photo", "video", "animation", "audio", "voice", "document", "sticker"}:
             return False
+
+        if cfg.forward_lock and getattr(message, "forward_date", None):
+            if self._delete(message):
+                self.warn(message.chat.id, message.from_user.id, "Forward")
+                return True
 
         key = (message.chat.id, message.from_user.id)
         now = monotonic()
@@ -48,42 +54,7 @@ class GroupModeration:
         while bucket and now - bucket[0] > 10:
             bucket.popleft()
 
-        if cfg.anti_link and moderation_engine.contains_link(text):
-            if self._delete(message):
-                self.warn(message.chat.id, message.from_user.id, "ارسال لینک")
-                return True
-
-        if cfg.mention_lock and moderation_engine.contains_mention(text):
-            if self._delete(message):
-                self.warn(message.chat.id, message.from_user.id, "Mention")
-                return True
-
-        if cfg.hashtag_lock and moderation_engine.contains_hashtag(text):
-            if self._delete(message):
-                self.warn(message.chat.id, message.from_user.id, "Hashtag")
-                return True
-
-        if cfg.phone_lock and moderation_engine.contains_phone(text):
-            if self._delete(message):
-                self.warn(message.chat.id, message.from_user.id, "شماره تلفن")
-                return True
-
-        if cfg.profanity_filter and moderation_engine.contains_profanity(text):
-            if self._delete(message):
-                self.warn(message.chat.id, message.from_user.id, "الفاظ نامناسب")
-                return True
-
-        if cfg.drug_filter and moderation_engine.contains_drug_content(text):
-            if self._delete(message):
-                self.warn(message.chat.id, message.from_user.id, "محتوای مواد مخدر")
-                return True
-
-        if cfg.nsfw_filter and moderation_engine.contains_nsfw_content(text):
-            if self._delete(message):
-                self.warn(message.chat.id, message.from_user.id, "محتوای جنسی")
-                return True
-
-        if cfg.anti_flood and moderation_engine.looks_like_flood(len(bucket)):
+        if (cfg.anti_flood or cfg.anti_spam) and moderation_engine.looks_like_flood(len(bucket)):
             try:
                 self.bot.restrict_chat_member(
                     message.chat.id,
@@ -95,6 +66,23 @@ class GroupModeration:
                 return True
             except Exception:
                 return False
+
+        checks = [
+            (cfg.anti_link, moderation_engine.contains_link, "ارسال لینک"),
+            (cfg.mention_lock, moderation_engine.contains_mention, "Mention"),
+            (cfg.hashtag_lock, moderation_engine.contains_hashtag, "Hashtag"),
+            (cfg.phone_lock, moderation_engine.contains_phone, "شماره تلفن"),
+            (cfg.profanity_filter, moderation_engine.contains_profanity, "الفاظ نامناسب"),
+            (cfg.drug_filter, moderation_engine.contains_drug_content, "محتوای مواد مخدر"),
+            (cfg.nsfw_filter, moderation_engine.contains_nsfw_content, "محتوای جنسی"),
+        ]
+
+        for enabled, checker, reason in checks:
+            if enabled and checker(text):
+                if self._delete(message):
+                    self.warn(message.chat.id, message.from_user.id, reason)
+                    return True
+
         return False
 
     def warn(self, chat_id: int, user_id: int, reason: str) -> int:
