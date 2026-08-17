@@ -1,11 +1,32 @@
 <!doctype html>
 <html lang="fa" dir="rtl">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#080b11"><title>XAI MASTER</title><link rel="stylesheet" href="/miniapp/style.css"><script src="https://telegram.org/js/telegram-web-app.js?63"></script></head>
-<body><main class="app-shell">
-<header class="topbar glass"><div class="brand"><div class="brand-mark">X</div><div><strong>XAI MASTER</strong><span id="statusText">آنلاین</span></div></div><button class="lang-btn" id="langBtn">EN</button></header>
-<section class="hero-profile glass"><div class="avatar-wrap"><img id="profilePhoto" class="profile-photo hidden" alt="Profile"><div class="avatar" id="avatar">A</div></div><div class="profile-copy"><h1 id="profileName">AHMAD</h1><p id="profileUsername">@username</p><small id="profileRole">کاربر</small></div></section>
-<section class="stats-grid"><article class="stat glass"><span id="statGroupsLabel">گروه‌ها</span><b id="statGroups">0</b></article><article class="stat glass"><span id="statMembersLabel">اعضا</span><b id="statMembers">—</b></article><article class="stat glass"><span id="statBlockedLabel">مسدودشده</span><b id="statBlocked">—</b></article></section>
-<section class="section-title"><span>XAI MASTER</span><span id="mainSubtitle">مرکز مدیریت</span></section>
-<section class="view glass" id="view"><div class="view-head"><h2 id="viewTitle">XAI MASTER</h2><button id="backBtn" class="back hidden">• بازگشت</button></div><div id="viewContent"></div></section>
-<nav class="bottom-nav glass"><button class="active" data-page="home"><span>•</span><small id="navHome">خانه</small></button><button data-page="market"><span>•</span><small id="navMarket">بازار</small></button><button data-page="groups"><span>•</span><small id="navGroups">گروه و کانال</small></button></nav>
-<footer><span>XAI MASTER V3</span><span id="footerText">مدیریت هوشمند گروه تلگرام</span></footer></main><script src="/miniapp/app.js"></script></body></html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#070a0f">
+  <title>XAI MASTER</title>
+  <link rel="stylesheet" href="/miniapp/style.css">
+  <script src="https://telegram.org/js/telegram-web-app.js?63"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <div class="brand-lockup"><span class="brand-mark">X</span><div><strong>XAI MASTER</strong><small id="online">ONLINE</small></div></div>
+      <button id="profileButton" class="profile-mini" aria-label="Profile"><span id="profileInitial">A</span><img id="profileImage" class="hidden" alt=""></button>
+    </header>
+
+    <section id="homePage" class="page active-page"></section>
+    <section id="marketPage" class="page"></section>
+    <section id="groupsPage" class="page"></section>
+    <section id="chatPage" class="page"></section>
+    <section id="profilePage" class="page"></section>
+
+    <nav class="bottom-nav" aria-label="Primary navigation">
+      <button data-route="home" class="nav-item active"><span class="nav-icon home-icon"></span><small id="navHome">Home</small></button>
+      <button data-route="market" class="nav-item"><span class="nav-icon market-icon"></span><small id="navMarket">Market</small></button>
+      <button data-route="groups" class="nav-item"><span class="nav-icon groups-icon"></span><small id="navGroups">Groups</small></button>
+    </nav>
+  </main>
+  <script src="/miniapp/app.js"></script>
+</body>
+</html>
