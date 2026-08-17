@@ -6,8 +6,6 @@ import httpx
 async def public_market() -> dict:
     result = {"gold_usd": None, "gold_irr": None, "usd_irr": None, "eur_irr": None, "usd_eur": None, "sources": [], "freshness": "unavailable"}
 
-    # Reference market feed. Keep this call server-side so the Mini App never
-    # needs to expose a provider key and can later be replaced by a paid feed.
     try:
         async with httpx.AsyncClient(timeout=8) as client:
             response = await client.get("https://persiantoolbox.ir/api/market")
@@ -20,12 +18,13 @@ async def public_market() -> dict:
                 usd = currencies.get("USD", {})
                 irr = currencies.get("IRR", {})
                 eur = currencies.get("EUR", {})
-                if isinstance(usd, dict) and usd.get("rate") is not None:
-                    result["usd_irr"] = usd.get("rate")
-                if isinstance(eur, dict) and eur.get("rate") is not None:
-                    result["eur_irr"] = eur.get("rate")
-                if isinstance(irr, dict) and irr.get("rate") is not None and result["usd_irr"] is None:
-                    result["usd_irr"] = irr.get("rate")
+                usd_rate = float(usd.get("rate")) if isinstance(usd, dict) and usd.get("rate") is not None else None
+                irr_rate = float(irr.get("rate")) if isinstance(irr, dict) and irr.get("rate") is not None else None
+                eur_rate = float(eur.get("rate")) if isinstance(eur, dict) and eur.get("rate") is not None else None
+                if usd_rate and irr_rate:
+                    result["usd_irr"] = irr_rate / usd_rate
+                if usd_rate and eur_rate:
+                    result["eur_irr"] = irr_rate / eur_rate if irr_rate else None
             if isinstance(gold, dict) and gold.get("pricePerGram") is not None:
                 result["gold_irr"] = gold.get("pricePerGram")
             result["freshness"] = data.get("freshness", "unknown")
@@ -33,8 +32,6 @@ async def public_market() -> dict:
     except Exception:
         pass
 
-    # Keep the existing global gold feed as a fallback for deployments where
-    # the Iran market feed is unavailable.
     if result["gold_usd"] is None:
         try:
             async with httpx.AsyncClient(timeout=8) as client:
