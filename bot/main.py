@@ -56,6 +56,9 @@ def build_bot() -> TeleBot:
         member = message.new_chat_member
         if not member or message.chat.type not in {"group", "supergroup", "channel"}: return
         if member.user and member.user.id == bot.get_me().id and member.status in {"administrator", "member"}: registry.upsert(message.chat.id, message.chat.title or "Untitled", message.chat.type, getattr(message.chat, "username", None))
+    @bot.channel_post_handler(func=lambda message: True)
+    def channel_post(message: Message):
+        registry.upsert(message.chat.id, message.chat.title or "Untitled", "channel", getattr(message.chat, "username", None))
     @bot.message_handler(commands=["panel"])
     def panel(message: Message):
         lang = lang_for(message) or "fa"; url = getattr(settings, "miniapp_url", "") or ""
