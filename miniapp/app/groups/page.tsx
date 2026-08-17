@@ -1,22 +1,5 @@
 "use client";
-
-import { useEffect, useState } from "react";
-import AppShell from "../components/AppShell";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
-
-export default function GroupsPage() {
-  const [groups, setGroups] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    const tg = (window as Window & { Telegram?: { WebApp?: any } }).Telegram?.WebApp;
-    tg?.ready?.();
-    fetch(`${API_BASE}/api/miniapp/groups`, { headers: { "X-Telegram-Init-Data": tg?.initData ?? "" }, cache: "no-store" })
-      .then(async r => { if (!r.ok) throw new Error("Unable to load groups"); return r.json(); })
-      .then(d => setGroups(d.groups ?? []))
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
-  return <AppShell><section className="space-y-4"><div className="rounded-3xl border border-white/10 bg-[var(--surface)] p-6"><p className="text-xs text-[var(--muted)]">XAI MASTER</p><h2 className="mt-2 text-2xl font-semibold">Groups & Channels</h2><p className="mt-2 text-sm text-[var(--muted)]">Only chats where your Telegram account has management access appear here.</p></div>{loading && <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-[var(--muted)]">Loading...</div>}{error && <div className="rounded-2xl border border-red-400/20 bg-red-400/10 p-5 text-sm">{error}</div>}{!loading && !error && groups.length === 0 && <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-[var(--muted)]">No managed groups or channels found.</div>}{groups.map(g => <button key={g.id} className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 p-4 text-left"><div><p className="font-semibold">{g.title}</p><p className="mt-1 text-xs text-[var(--muted)]">{g.type ?? "chat"}</p></div><span className="text-xs text-[var(--muted)]">• Manage</span></button>)}</section></AppShell>;
-}
+import {useEffect,useState} from "react";import AppShell from "../components/AppShell";
+const API_BASE=process.env.NEXT_PUBLIC_API_BASE_URL??"";const tg=()=>typeof window!=="undefined"?(window as Window & {Telegram?:{WebApp?:any}}).Telegram?.WebApp:undefined;
+export default function GroupsPage(){const[groups,setGroups]=useState<any[]>([]);const[selected,setSelected]=useState<any>(null);const[settings,setSettings]=useState<Record<string,boolean>>({});const[error,setError]=useState("");useEffect(()=>{tg()?.ready?.();fetch(`${API_BASE}/api/miniapp/groups`,{headers:{"X-Telegram-Init-Data":tg()?.initData??""},cache:"no-store"}).then(async r=>{if(!r.ok)throw new Error("Unable to load groups");return r.json()}).then(d=>setGroups(d.groups??[])).catch(e=>setError(e.message))},[]);async function open(g:any){setSelected(g);try{const r=await fetch(`${API_BASE}/api/miniapp/groups/${g.chat_id}/settings`,{headers:{"X-Telegram-Init-Data":tg()?.initData??""}});const d=await r.json();if(!r.ok)throw new Error(d.detail);setSettings(d.settings??{})}catch(e:any){setError(e.message)}}async function toggle(feature:string){if(!selected)return;const r=await fetch(`${API_BASE}/api/miniapp/groups/${selected.chat_id}/settings`,{method:"PATCH",headers:{"Content-Type":"application/json","X-Telegram-Init-Data":tg()?.initData??""},body:JSON.stringify({feature,enabled:!settings[feature]})});const d=await r.json();if(r.ok)setSettings(d.settings);else setError(d.detail??"Unable to save")};const features=["anti_link","anti_flood","forward_lock","mention_lock","hashtag_lock","profanity_filter","drug_filter","nsfw_filter","media_lock","phone_lock","force_join"];
+return <AppShell><section className="space-y-4"><div className="rounded-3xl border border-white/10 bg-[var(--surface)] p-5"><p className="text-xs text-[var(--muted)]">XAI MASTER</p><h2 className="mt-2 text-2xl font-semibold">{selected?selected.title:"Groups & Channels"}</h2></div>{error&&<div className="rounded-xl bg-red-400/10 p-3 text-sm text-red-200">{error}</div>}{!selected&&groups.map(g=><button key={g.chat_id} onClick={()=>open(g)} className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 p-4 text-left"><div><p className="font-semibold">{g.title}</p><p className="mt-1 text-xs text-[var(--muted)]">{g.type??"chat"}{g.username?` • @${g.username}`:""}</p></div><span className="text-xs text-[var(--muted)]">• Manage</span></button>)}{!selected&&!groups.length&&!error&&<div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-sm text-[var(--muted)]">No managed groups or channels found.</div>}{selected&&<section className="space-y-2"><button onClick={()=>setSelected(null)} className="mb-2 text-xs text-[var(--muted)]">• Back</button>{features.map(f=><button key={f} onClick={()=>toggle(f)} className="flex w-full items-center justify-between rounded-2xl border border-white/10 bg-white/5 p-4"><span>{f}</span><span>{settings[f]?"• ON":"• OFF"}</span></button>)}</section>}</section></AppShell>}
