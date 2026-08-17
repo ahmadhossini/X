@@ -173,7 +173,18 @@ def build_bot() -> TeleBot:
         except Exception:
             bot.answer_callback_query(call.id, "Verification failed", show_alert=True)
 
-    @bot.message_handler(content_types=["text"])
+    @bot.message_handler(
+    content_types=[
+        "text",
+        "photo",
+        "video",
+        "document",
+        "animation",
+        "audio",
+        "voice",
+        "sticker"
+    ]
+    )
     def moderate(message: Message):
         if message.chat.type in {"group", "supergroup"}:
             moderation.handle(message)
