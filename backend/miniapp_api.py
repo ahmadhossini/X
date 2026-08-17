@@ -5,6 +5,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
 from backend.miniapp_auth import validate_telegram_init_data
 from backend.chat_registry import registry
+from backend.chat_stats import stats
 from bot.services.group_settings_store import store
 
 router=APIRouter(prefix="/api/miniapp",tags=["miniapp"])
@@ -36,7 +37,10 @@ async def groups(x_telegram_init_data:str=Header(default="")):
     user=_identity(x_telegram_init_data);out=[]
     for chat in registry.all():
         if await _admin(user["id"],chat.chat_id):
-            out.append({"chat_id":chat.chat_id,"title":chat.title,"type":chat.chat_type,"username":chat.username,"member_count":None,"message_count":None,"deleted_count":None})
+            try:info=await _telegram("getChat",chat_id=chat.chat_id)
+            except Exception:info={}
+            s=stats.get(chat.chat_id)
+            out.append({"chat_id":chat.chat_id,"title":chat.title,"type":chat.chat_type,"username":chat.username,"member_count":info.get("members_count"),"message_count":s["messages"],"deleted_count":s["deleted"]})
     return {"groups":out}
 
 @router.get("/groups/{chat_id}")
@@ -47,7 +51,13 @@ async def group(chat_id:int,x_telegram_init_data:str=Header(default="")):
     if not record:raise HTTPException(status_code=404,detail="Chat not found")
     try:info=await _telegram("getChat",chat_id=chat_id)
     except Exception:info={}
-    return {"chat_id":chat_id,"title":record.title,"type":record.chat_type,"username":record.username,"member_count":None,"message_count":None,"deleted_count":None,"telegram":info}
+    return {"chat_id":chat_id,"title":record.title,"type":record.chat_type,"username":record.username,"member_count":info.get("members_count"),"stats":stats.get(chat_id),"telegram":info}
+
+@router.get("/groups/{chat_id}/stats")
+async def group_stats(chat_id:int,x_telegram_init_data:str=Header(default="")):
+    user=_identity(x_telegram_init_data)
+    if not await _admin(user["id"],chat_id):raise HTTPException(status_code=403,detail="Forbidden")
+    return stats.get(chat_id)
 
 class SettingChange(BaseModel):
     feature:str
