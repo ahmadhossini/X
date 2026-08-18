@@ -3,22 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>XAI MASTER Dashboard</title>
+  <title>XAI MASTER</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main class="container">
     <header>
       <h1>XAI MASTER</h1>
-      <p>داشبورد مدیریت گروه‌ها، کانال‌ها و بازار</p>
+      <p>پنل مدیریت گروه</p>
     </header>
+
     <section class="cards">
       <article><span>وضعیت API</span><strong id="status">در حال بررسی...</strong></article>
       <article><span>BTC</span><strong id="btc">-</strong></article>
       <article><span>ETH</span><strong id="eth">-</strong></article>
       <article><span>TRX</span><strong id="trx">-</strong></article>
     </section>
+
+    <section id="security" class="settings-panel">
+      <div class="section-head">
+        <h2>امنیت گروه</h2>
+        <span id="group-status">در حال اتصال...</span>
+      </div>
+      <div id="settings-list" class="settings-list"></div>
+    </section>
+
+    <p id="error" class="error" hidden></p>
   </main>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
