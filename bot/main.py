@@ -44,7 +44,6 @@ def start_keyboard(lang: str):
             url=f"https://t.me/{bot_username}?startgroup=true"
         )
     )
-
     if miniapp_url:
         markup.add(
             types.InlineKeyboardButton(
@@ -52,7 +51,6 @@ def start_keyboard(lang: str):
                 web_app=types.WebAppInfo(url=miniapp_url)
             )
         )
-
     markup.add(
         types.InlineKeyboardButton(
             get_text(lang, "support"),
@@ -100,10 +98,7 @@ def build_bot():
         if message.chat.type not in {"group", "supergroup"}:
             return False
         try:
-            member = bot.get_chat_member(
-                message.chat.id,
-                message.from_user.id
-            )
+            member = bot.get_chat_member(message.chat.id, message.from_user.id)
             return member.status in {"creator", "administrator"}
         except Exception:
             return False
@@ -133,32 +128,47 @@ def build_bot():
 
     @bot.message_handler(commands=["panel", "پنل"])
     def panel_command(message: Message):
+        """Open the group management panel safely from any chat.
+
+        Telegram Web App inline buttons are restricted in group chats, so a
+        group /panel command uses a normal Telegram deep-link to the bot's
+        private chat. The Mini App then receives Telegram initData there.
+        """
         try:
             if message.chat.type not in {"group", "supergroup"}:
-                bot.reply_to(message, "پنل مدیریت را از داخل گروه باز کنید.")
+                bot.reply_to(
+                    message,
+                    "پنل مدیریت گروه باید از داخل گروه انتخاب‌شده باز شود."
+                )
                 return
 
-            miniapp_url = getattr(settings, "miniapp_url", "") or DEFAULT_MINIAPP_URL
-            separator = "&" if "?" in miniapp_url else "?"
-            panel_url = f"{miniapp_url}{separator}chat_id={message.chat.id}"
+            bot_username = getattr(settings, "bot_username", "")
+            if not bot_username:
+                # Keep /panel responsive even if BOT_USERNAME is not configured.
+                bot.reply_to(
+                    message,
+                    "پنل هنوز تنظیم نشده است. BOT_USERNAME را در Railway تنظیم کنید."
+                )
+                return
+
+            # The Mini App is launched in the bot's private chat, where
+            # Telegram provides initData and WebApp buttons are supported.
+            startapp = f"group_{message.chat.id}"
+            private_panel_url = (
+                f"https://t.me/{bot_username}?startapp={startapp}"
+            )
 
             markup = types.InlineKeyboardMarkup()
             markup.add(
                 types.InlineKeyboardButton(
                     "• باز کردن پنل مدیریت",
-                    web_app=types.WebAppInfo(url=panel_url)
-                )
-            )
-            markup.add(
-                types.InlineKeyboardButton(
-                    "• باز کردن نسخه وب",
-                    url=panel_url
+                    url=private_panel_url
                 )
             )
 
             bot.send_message(
                 message.chat.id,
-                "<b>XAI MASTER V3 PANEL</b>\n\nپنل مدیریت گروه را باز کنید.",
+                "<b>XAI MASTER V3 PANEL</b>\n\nبرای مدیریت این گروه، پنل را باز کنید.",
                 reply_markup=markup,
                 parse_mode="HTML"
             )
@@ -310,11 +320,7 @@ def build_bot():
             bot.edit_message_text("Verified", chat_id, call.message.message_id)
         except Exception:
             logger.exception("verification error")
-            bot.answer_callback_query(
-                call.id,
-                "Verification failed",
-                show_alert=True
-            )
+            bot.answer_callback_query(call.id, "Verification failed", show_alert=True)
 
     @bot.message_handler(
         content_types=[
