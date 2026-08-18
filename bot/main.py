@@ -157,7 +157,6 @@ def build_bot():
                 "creator",
                 "administrator"
             }
-        try:
         except Exception:
             return False
 
