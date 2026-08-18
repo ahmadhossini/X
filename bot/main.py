@@ -14,6 +14,7 @@ from core.config import settings
 logger = logging.getLogger(__name__)
 
 SUPPORT_URL = "https://t.me/XAIMASTER_Official"
+DEFAULT_MINIAPP_URL = "https://xai-master-production-c83b.up.railway.app/dashboard/"
 
 
 def lang_for(message: Message) -> str:
@@ -35,7 +36,7 @@ def choose_language_keyboard():
 def start_keyboard(lang: str):
     markup = types.InlineKeyboardMarkup()
     bot_username = getattr(settings, "bot_username", "XAI_MASTER_BOT")
-    miniapp_url = getattr(settings, "miniapp_url", "")
+    miniapp_url = getattr(settings, "miniapp_url", "") or DEFAULT_MINIAPP_URL
 
     markup.add(
         types.InlineKeyboardButton(
@@ -132,33 +133,44 @@ def build_bot():
 
     @bot.message_handler(commands=["panel", "پنل"])
     def panel_command(message: Message):
-        lang = lang_for(message)
-        miniapp_url = getattr(settings, "miniapp_url", "")
+        try:
+            if message.chat.type not in {"group", "supergroup"}:
+                bot.reply_to(message, "پنل مدیریت را از داخل گروه باز کنید.")
+                return
 
-        if not miniapp_url:
-            bot.reply_to(message, "Dashboard is not configured.")
-            return
+            miniapp_url = getattr(settings, "miniapp_url", "") or DEFAULT_MINIAPP_URL
+            separator = "&" if "?" in miniapp_url else "?"
+            panel_url = f"{miniapp_url}{separator}chat_id={message.chat.id}"
 
-        if message.chat.type not in {"group", "supergroup"}:
-            bot.reply_to(message, "پنل مدیریت را از داخل گروه باز کنید.")
-            return
-
-        separator = "&" if "?" in miniapp_url else "?"
-        panel_url = f"{miniapp_url}{separator}chat_id={message.chat.id}"
-
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            types.InlineKeyboardButton(
-                "• Dashboard",
-                web_app=types.WebAppInfo(url=panel_url)
+            markup = types.InlineKeyboardMarkup()
+            markup.add(
+                types.InlineKeyboardButton(
+                    "• باز کردن پنل مدیریت",
+                    web_app=types.WebAppInfo(url=panel_url)
+                )
             )
-        )
+            markup.add(
+                types.InlineKeyboardButton(
+                    "• باز کردن نسخه وب",
+                    url=panel_url
+                )
+            )
 
-        bot.reply_to(
-            message,
-            "<b>XAI MASTER V3 PANEL</b>",
-            reply_markup=markup
-        )
+            bot.send_message(
+                message.chat.id,
+                "<b>XAI MASTER V3 PANEL</b>\n\nپنل مدیریت گروه را باز کنید.",
+                reply_markup=markup,
+                parse_mode="HTML"
+            )
+        except Exception:
+            logger.exception("panel error")
+            try:
+                bot.send_message(
+                    message.chat.id,
+                    "پنل مدیریت موقتاً در دسترس نیست."
+                )
+            except Exception:
+                logger.exception("panel fallback error")
 
     @bot.message_handler(commands=["warn", "هشدار"])
     def warn_command(message: Message):
@@ -166,12 +178,10 @@ def build_bot():
         if not is_admin(message):
             bot.reply_to(message, get_text(lang, "only_admin"))
             return
-
         user_id = _target_from_reply(message)
         if not user_id:
             bot.reply_to(message, "Reply to a user message first.")
             return
-
         try:
             count = moderation.warn(message.chat.id, user_id, "Manual warning")
             bot.reply_to(message, f"Warning added. Total warnings: {count}")
@@ -185,11 +195,9 @@ def build_bot():
         if not is_admin(message):
             bot.reply_to(message, get_text(lang, "only_admin"))
             return
-
         bot.reply_to(
             message,
-            "<b>XAI MASTER SETTINGS</b>\n\n"
-            "برای تنظیمات کامل گروه از /panel استفاده کنید."
+            "<b>XAI MASTER SETTINGS</b>\n\nبرای تنظیمات کامل گروه از /panel استفاده کنید."
         )
 
     @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("lang:"))
