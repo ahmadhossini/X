@@ -14,7 +14,7 @@ from core.config import settings
 logger = logging.getLogger(__name__)
 
 SUPPORT_URL = "https://t.me/XAIMASTER_Official"
-DEFAULT_MINIAPP_URL = "https://xai-master-production-c83b.up.railway.app/dashboard/"
+DEFAULT_MINIAPP_URL = "https://xai-master-production-c83b.up.railway.app/miniapp/"
 
 
 def lang_for(message: Message) -> str:
@@ -78,6 +78,25 @@ def build_bot():
     @bot.message_handler(commands=["start"])
     def start_command(message: Message):
         lang = lang_for(message)
+        parts = (message.text or "").split(maxsplit=1)
+        payload = parts[1].strip() if len(parts) > 1 else ""
+
+        if message.chat.type == "private" and payload.startswith("panel_"):
+            chat_id = payload.removeprefix("panel_")
+            if chat_id.startswith("-"):
+                miniapp_url = getattr(settings, "miniapp_url", "") or DEFAULT_MINIAPP_URL
+                separator = "&" if "?" in miniapp_url else "?"
+                url = f"{miniapp_url}{separator}chat_id={chat_id}"
+                bot.send_message(
+                    message.chat.id,
+                    "<b>XAI MASTER V3 PANEL</b>\n\nپنل مدیریت گروه شما آماده است.",
+                    reply_markup=types.InlineKeyboardMarkup().add(
+                        types.InlineKeyboardButton("• باز کردن پنل مدیریت", web_app=types.WebAppInfo(url=url))
+                    ),
+                    parse_mode="HTML",
+                )
+                return
+
         if not get_user_language(message.from_user.id):
             bot.send_message(message.chat.id, "• لطفاً زبان را انتخاب کنید\n• Please select your language:", reply_markup=choose_language_keyboard())
             return
@@ -94,13 +113,15 @@ def build_bot():
     @bot.message_handler(commands=["panel", "پنل"])
     def panel_command(message: Message):
         try:
-            miniapp_url = getattr(settings, "miniapp_url", "") or "https://xai-master-production-c83b.up.railway.app/miniapp/"
+            miniapp_url = getattr(settings, "miniapp_url", "") or DEFAULT_MINIAPP_URL
             if message.chat.type in {"group", "supergroup"}:
+                bot_username = getattr(settings, "bot_username", "XAI_MASTER_BOT").lstrip("@")
+                deep_link = f"https://t.me/{bot_username}?start=panel_{message.chat.id}"
                 bot.send_message(
                     message.chat.id,
-                    "<b>XAI MASTER V3 PANEL</b>\n\nبرای مدیریت این گروه، پنل را از لینک زیر باز کنید:",
+                    "<b>XAI MASTER V3 PANEL</b>\n\nبرای مدیریت این گروه، ابتدا پنل را در چت خصوصی ربات باز کنید:",
                     reply_markup=types.InlineKeyboardMarkup().add(
-                        types.InlineKeyboardButton("• باز کردن پنل مدیریت", url=miniapp_url)
+                        types.InlineKeyboardButton("• باز کردن پنل مدیریت", url=deep_link)
                     ),
                     parse_mode="HTML",
                 )
