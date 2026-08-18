@@ -119,18 +119,15 @@ def send_start(
 def _target_from_reply(
     message: Message
 ) -> Optional[int]:
-
     if (
         message.reply_to_message
         and message.reply_to_message.from_user
     ):
         return message.reply_to_message.from_user.id
-
     return None
 
 
 def build_bot():
-
     if not settings.bot_token:
         raise RuntimeError(
             "BOT_TOKEN is missing"
@@ -143,9 +140,7 @@ def build_bot():
 
     moderation = GroupModeration(bot)
 
-
     def is_admin(message: Message):
-
         if message.chat.type not in {
             "group",
             "supergroup"
@@ -165,13 +160,13 @@ def build_bot():
 
         except Exception:
             return False
-                @bot.message_handler(
+
+    @bot.message_handler(
         commands=[
             "start"
         ]
     )
     def start_command(message: Message):
-
         lang = lang_for(message)
 
         if not get_user_language(
@@ -190,7 +185,6 @@ def build_bot():
             lang
         )
 
-
     @bot.message_handler(
         commands=[
             "help",
@@ -198,7 +192,6 @@ def build_bot():
         ]
     )
     def help_command(message: Message):
-
         lang = lang_for(message)
 
         try:
@@ -218,7 +211,6 @@ def build_bot():
                 "/settings"
             )
 
-
     @bot.message_handler(
         commands=[
             "panel",
@@ -226,7 +218,6 @@ def build_bot():
         ]
     )
     def panel_command(message: Message):
-
         lang = lang_for(message)
 
         miniapp_url = getattr(
@@ -242,7 +233,6 @@ def build_bot():
             )
             return
 
-
         markup = types.InlineKeyboardMarkup()
 
         markup.add(
@@ -254,14 +244,11 @@ def build_bot():
             )
         )
 
-
         bot.reply_to(
             message,
             "<b>XAI MASTER V3 PANEL</b>",
             reply_markup=markup
         )
-
-
 
     @bot.message_handler(
         commands=[
@@ -270,12 +257,9 @@ def build_bot():
         ]
     )
     def warn_command(message: Message):
-
         lang = lang_for(message)
 
-
         if not is_admin(message):
-
             bot.reply_to(
                 message,
                 get_text(
@@ -283,51 +267,35 @@ def build_bot():
                     "only_admin"
                 )
             )
-
             return
 
-
-        user_id = _target_from_reply(
-            message
-        )
-
+        user_id = _target_from_reply(message)
 
         if not user_id:
-
             bot.reply_to(
                 message,
                 "Reply to a user message first."
             )
-
             return
 
-
         try:
-
-            moderation.add_warning(
+            count = moderation.warn(
                 message.chat.id,
-                user_id
+                user_id,
+                "Manual warning"
             )
-
 
             bot.reply_to(
                 message,
-                "Warning added."
+                f"Warning added. Total warnings: {count}"
             )
 
-
-        except Exception as e:
-
-            logger.exception(
-                "warn error"
-            )
-
+        except Exception:
+            logger.exception("warn error")
             bot.reply_to(
                 message,
                 "Warning failed."
             )
-
-
 
     @bot.message_handler(
         commands=[
@@ -336,12 +304,9 @@ def build_bot():
         ]
     )
     def settings_command(message: Message):
-
         lang = lang_for(message)
 
-
         if not is_admin(message):
-
             bot.reply_to(
                 message,
                 get_text(
@@ -349,9 +314,7 @@ def build_bot():
                     "only_admin"
                 )
             )
-
             return
-
 
         text = (
             "<b>XAI MASTER SETTINGS</b>\n\n"
@@ -367,13 +330,10 @@ def build_bot():
             "• NSFW Filter"
         )
 
-
         bot.reply_to(
             message,
             text
         )
-
-
 
     @bot.callback_query_handler(
         func=lambda call:
@@ -383,49 +343,40 @@ def build_bot():
         )
     )
     def language_callback(call):
-
         lang = call.data.split(
             ":",
             1
         )[1]
 
-
         if lang not in {
             "fa",
             "en"
         }:
-
             bot.answer_callback_query(
                 call.id,
                 "Invalid language"
             )
-
             return
-
 
         set_user_language(
             call.from_user.id,
             lang
         )
 
-
-        bot.answer_callback_query(
-            call.id
-        )
-
+        bot.answer_callback_query(call.id)
 
         send_start(
             bot,
             call.message,
             lang
         )
-            @bot.message_handler(
+
+    @bot.message_handler(
         commands=[
             "ban"
         ]
     )
     def ban_command(message: Message):
-
         lang = lang_for(message)
 
         if not is_admin(message):
@@ -438,10 +389,7 @@ def build_bot():
             )
             return
 
-
-        user_id = _target_from_reply(
-            message
-        )
+        user_id = _target_from_reply(message)
 
         if not user_id:
             bot.reply_to(
@@ -449,7 +397,6 @@ def build_bot():
                 "Reply to user message."
             )
             return
-
 
         try:
             bot.ban_chat_member(
@@ -463,17 +410,11 @@ def build_bot():
             )
 
         except Exception:
-
-            logger.exception(
-                "ban error"
-            )
-
+            logger.exception("ban error")
             bot.reply_to(
                 message,
                 "Ban failed."
             )
-
-
 
     @bot.message_handler(
         commands=[
@@ -481,7 +422,6 @@ def build_bot():
         ]
     )
     def unban_command(message: Message):
-
         lang = lang_for(message)
 
         if not is_admin(message):
@@ -494,11 +434,7 @@ def build_bot():
             )
             return
 
-
-        user_id = _target_from_reply(
-            message
-        )
-
+        user_id = _target_from_reply(message)
 
         if not user_id:
             bot.reply_to(
@@ -507,9 +443,7 @@ def build_bot():
             )
             return
 
-
         try:
-
             bot.unban_chat_member(
                 message.chat.id,
                 user_id,
@@ -521,19 +455,12 @@ def build_bot():
                 "User unbanned."
             )
 
-
         except Exception:
-
-            logger.exception(
-                "unban error"
-            )
-
+            logger.exception("unban error")
             bot.reply_to(
                 message,
                 "Unban failed."
             )
-
-
 
     @bot.message_handler(
         commands=[
@@ -542,15 +469,10 @@ def build_bot():
         ]
     )
     def unmute_command(message: Message):
-
         if not is_admin(message):
             return
 
-
-        user_id = _target_from_reply(
-            message
-        )
-
+        user_id = _target_from_reply(message)
 
         if not user_id:
             bot.reply_to(
@@ -559,9 +481,7 @@ def build_bot():
             )
             return
 
-
         try:
-
             bot.restrict_chat_member(
                 message.chat.id,
                 user_id,
@@ -569,20 +489,13 @@ def build_bot():
                 can_send_media_messages=True
             )
 
-
             bot.reply_to(
                 message,
                 "User unmuted."
             )
 
-
         except Exception:
-
-            logger.exception(
-                "unmute error"
-            )
-
-
+            logger.exception("unmute error")
 
     @bot.message_handler(
         content_types=[
@@ -590,28 +503,22 @@ def build_bot():
         ]
     )
     def verify_new_members(message: Message):
-
         if message.chat.type not in {
             "group",
             "supergroup"
         }:
             return
 
-
         for member in message.new_chat_members:
-
             if member.is_bot:
                 continue
 
-
             try:
-
                 bot.restrict_chat_member(
                     message.chat.id,
                     member.id,
                     can_send_messages=False
                 )
-
 
                 markup = types.InlineKeyboardMarkup()
 
@@ -626,21 +533,14 @@ def build_bot():
                     )
                 )
 
-
                 bot.send_message(
                     message.chat.id,
                     "Please verify you are human.",
                     reply_markup=markup
                 )
 
-
             except Exception:
-
-                logger.exception(
-                    "verify error"
-                )
-
-
+                logger.exception("verify error")
 
     @bot.callback_query_handler(
         func=lambda call:
@@ -650,29 +550,19 @@ def build_bot():
         )
     )
     def verify_callback(call):
-
         try:
-
-            _, chat_id, user_id = (
-                call.data.split(":")
-            )
-
+            _, chat_id, user_id = call.data.split(":")
 
             chat_id = int(chat_id)
             user_id = int(user_id)
 
-
             if call.from_user.id != user_id:
-
                 bot.answer_callback_query(
                     call.id,
                     "Not for you",
                     show_alert=True
                 )
-
                 return
-
-
 
             bot.restrict_chat_member(
                 chat_id,
@@ -681,12 +571,10 @@ def build_bot():
                 can_send_media_messages=True
             )
 
-
             bot.answer_callback_query(
                 call.id,
                 "Verified"
             )
-
 
             bot.edit_message_text(
                 "Verified",
@@ -694,16 +582,13 @@ def build_bot():
                 call.message.message_id
             )
 
-
         except Exception:
-
+            logger.exception("verification error")
             bot.answer_callback_query(
                 call.id,
                 "Verification failed",
                 show_alert=True
             )
-
-
 
     @bot.message_handler(
         content_types=[
@@ -717,42 +602,25 @@ def build_bot():
             "sticker"
         ]
     )
-    def moderation_handler(
-        message: Message
-    ):
-
+    def moderation_handler(message: Message):
         if message.chat.type in {
             "group",
             "supergroup"
         }:
-
             try:
-
-                moderation.handle(
-                    message
-                )
-
-
+                moderation.handle(message)
             except Exception:
-
-                logger.exception(
-                    "moderation error"
-                )
-
-
+                logger.exception("moderation error")
 
     return bot
 
 
-
 def run_bot():
-
     bot = build_bot()
 
     logger.info(
         "XAI MASTER V3 started"
     )
-
 
     bot.infinity_polling(
         skip_pending=True,
@@ -761,9 +629,7 @@ def run_bot():
     )
 
 
-
 if __name__ == "__main__":
-
     logging.basicConfig(
         level=logging.INFO
     )
