@@ -1,10 +1,24 @@
 * { box-sizing: border-box; }
 body { margin: 0; font-family: system-ui, sans-serif; background: #0d1117; color: #e6edf3; }
-.container { max-width: 1100px; margin: 0 auto; padding: 32px 20px; }
-header { margin-bottom: 28px; }
+.container { max-width: 1100px; margin: 0 auto; padding: 24px 16px 40px; }
+header { margin-bottom: 22px; }
 header h1 { margin: 0 0 8px; }
-header p { color: #8b949e; }
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
-.cards article { padding: 22px; border: 1px solid #30363d; border-radius: 16px; background: #161b22; }
-.cards span { display: block; color: #8b949e; margin-bottom: 10px; }
-.cards strong { font-size: 24px; }
+header p { color: #8b949e; margin: 0; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.cards article, .settings-panel { padding: 18px; border: 1px solid #30363d; border-radius: 16px; background: rgba(22,27,34,.82); backdrop-filter: blur(14px); }
+.cards span { display: block; color: #8b949e; margin-bottom: 8px; }
+.cards strong { font-size: 22px; }
+.settings-panel { margin-top: 18px; }
+.section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.section-head h2 { margin: 0; font-size: 20px; }
+.section-head span { color: #8b949e; font-size: 13px; }
+.settings-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; border: 1px solid #30363d; border-radius: 14px; background: rgba(13,17,23,.72); }
+.setting-name { font-weight: 600; }
+.setting-state { color: #8b949e; font-size: 12px; margin-top: 4px; }
+.switch { width: 48px; height: 28px; border: 0; border-radius: 20px; background: #30363d; cursor: pointer; position: relative; flex: 0 0 auto; }
+.switch::after { content: ""; position: absolute; top: 4px; right: 24px; width: 20px; height: 20px; border-radius: 50%; background: #e6edf3; transition: .18s; }
+.switch.on { background: #238636; }
+.switch.on::after { right: 4px; }
+.switch:disabled { opacity: .5; cursor: wait; }
+.error { margin-top: 16px; padding: 12px; border-radius: 12px; border: 1px solid #f85149; color: #ff7b72; }
