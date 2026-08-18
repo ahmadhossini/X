@@ -33,11 +33,22 @@ def choose_language_keyboard():
     return markup
 
 
-def start_keyboard(lang: str):
+def get_bot_username(bot: TeleBot) -> str:
+    try:
+        username = bot.get_me().username
+        if username:
+            return username.lstrip("@")
+    except Exception:
+        logger.exception("could not get bot username")
+    return ""
+
+
+def start_keyboard(bot: TeleBot, lang: str):
     markup = types.InlineKeyboardMarkup()
-    bot_username = getattr(settings, "bot_username", "XAI_MASTER_BOT")
+    bot_username = get_bot_username(bot)
     miniapp_url = getattr(settings, "miniapp_url", "") or DEFAULT_MINIAPP_URL
-    markup.add(types.InlineKeyboardButton(get_text(lang, "add_group"), url=f"https://t.me/{bot_username}?startgroup=true"))
+    if bot_username:
+        markup.add(types.InlineKeyboardButton(get_text(lang, "add_group"), url=f"https://t.me/{bot_username}?startgroup=true"))
     if miniapp_url:
         markup.add(types.InlineKeyboardButton(get_text(lang, "dashboard"), web_app=types.WebAppInfo(url=miniapp_url)))
     markup.add(types.InlineKeyboardButton(get_text(lang, "support"), url=SUPPORT_URL))
@@ -50,7 +61,7 @@ def send_start(bot: TeleBot, message: Message, lang: str):
         text = get_text(lang, "welcome", name=name) + "\n\n" + get_text(lang, "features") + "\n\n" + get_text(lang, "admin")
     except Exception:
         text = "<b>XAI MASTER V3</b>\n\nAI Telegram Group Manager"
-    bot.send_message(message.chat.id, text, reply_markup=start_keyboard(lang), parse_mode="HTML")
+    bot.send_message(message.chat.id, text, reply_markup=start_keyboard(bot, lang), parse_mode="HTML")
 
 
 def _target_from_reply(message: Message) -> Optional[int]:
@@ -115,7 +126,10 @@ def build_bot():
         try:
             miniapp_url = getattr(settings, "miniapp_url", "") or DEFAULT_MINIAPP_URL
             if message.chat.type in {"group", "supergroup"}:
-                bot_username = getattr(settings, "bot_username", "XAI_MASTER_BOT").lstrip("@")
+                bot_username = get_bot_username(bot)
+                if not bot_username:
+                    bot.send_message(message.chat.id, "نام کاربری ربات از Telegram دریافت نشد. ربات را دوباره راه‌اندازی کنید.")
+                    return
                 deep_link = f"https://t.me/{bot_username}?start=panel_{message.chat.id}"
                 bot.send_message(
                     message.chat.id,
