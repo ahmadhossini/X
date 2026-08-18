@@ -7,6 +7,7 @@ import time
 from urllib.parse import parse_qsl
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from bot.services.group_settings_store import store
@@ -15,11 +16,24 @@ from database.session import init_db
 from market.service import crypto_market
 
 app = FastAPI(title="XAI MASTER API", version="3.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 
 @app.on_event("startup")
 def startup() -> None:
     init_db()
+
+
+@app.on_event("startup")
+def setup_bot_client() -> None:
+    from telebot import TeleBot
+    app.state.bot = TeleBot(settings.bot_token)
 
 
 @app.get("/")
@@ -81,7 +95,7 @@ def _telegram_check_string(init_data: str) -> tuple[str, dict[str, str]]:
     return pairs.get("user", ""), pairs
 
 
-def _authorized_admin(chat_id: int, init_data: str):
+def _authorized_admin(chat_id: int, init_data: str) -> int:
     user_json, _ = _telegram_check_string(init_data)
     if not user_json:
         raise HTTPException(status_code=401, detail="Telegram user missing")
@@ -101,12 +115,6 @@ def _authorized_admin(chat_id: int, init_data: str):
         raise HTTPException(status_code=403, detail="Admin access required")
 
     return user_id
-
-
-@app.on_event("startup")
-def setup_bot_client() -> None:
-    from telebot import TeleBot
-    app.state.bot = TeleBot(settings.bot_token)
 
 
 class FeatureUpdate(BaseModel):
