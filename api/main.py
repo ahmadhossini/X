@@ -31,6 +31,7 @@ DASHBOARD_DIR = BASE_DIR / "dashboard"
 
 if DASHBOARD_DIR.exists():
     app.mount("/dashboard", StaticFiles(directory=str(DASHBOARD_DIR), html=True), name="dashboard")
+    app.mount("/miniapp", StaticFiles(directory=str(DASHBOARD_DIR), html=True), name="miniapp")
 
 
 @app.on_event("startup")
@@ -79,19 +80,9 @@ def _telegram_check_string(init_data: str) -> tuple[str, dict[str, str]]:
     if not received_hash:
         raise HTTPException(status_code=401, detail="Invalid Telegram init data")
 
-    check_string = "\n".join(
-        f"{key}={value}" for key, value in sorted(pairs.items())
-    )
-    secret_key = hmac.new(
-        b"WebAppData",
-        settings.bot_token.encode(),
-        hashlib.sha256,
-    ).digest()
-    calculated = hmac.new(
-        secret_key,
-        check_string.encode(),
-        hashlib.sha256,
-    ).hexdigest()
+    check_string = "\n".join(f"{key}={value}" for key, value in sorted(pairs.items()))
+    secret_key = hmac.new(b"WebAppData", settings.bot_token.encode(), hashlib.sha256).digest()
+    calculated = hmac.new(secret_key, check_string.encode(), hashlib.sha256).hexdigest()
 
     if not hmac.compare_digest(calculated, received_hash):
         raise HTTPException(status_code=401, detail="Invalid Telegram init data")
@@ -131,20 +122,13 @@ class FeatureUpdate(BaseModel):
 
 
 @app.get("/api/groups/{chat_id}/settings")
-def get_group_settings(
-    chat_id: int,
-    x_telegram_init_data: str = Header(default=""),
-):
+def get_group_settings(chat_id: int, x_telegram_init_data: str = Header(default="")):
     _authorized_admin(chat_id, x_telegram_init_data)
     return {"chat_id": chat_id, "settings": store.get(chat_id).__dict__}
 
 
 @app.post("/api/groups/{chat_id}/settings")
-def update_group_setting(
-    chat_id: int,
-    payload: FeatureUpdate,
-    x_telegram_init_data: str = Header(default=""),
-):
+def update_group_setting(chat_id: int, payload: FeatureUpdate, x_telegram_init_data: str = Header(default="")):
     _authorized_admin(chat_id, x_telegram_init_data)
     if payload.feature not in FEATURES:
         raise HTTPException(status_code=400, detail="Unknown feature")
