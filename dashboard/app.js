@@ -29,7 +29,15 @@ function clearError() {
 
 function getChatId() {
   const params = new URLSearchParams(window.location.search);
-  return params.get("chat_id") || tg?.initDataUnsafe?.start_param || "";
+  const direct = params.get("chat_id");
+  if (direct) return direct;
+
+  const startParam = tg?.initDataUnsafe?.start_param || "";
+  if (startParam.startsWith("panel_")) {
+    return startParam.slice("panel_".length);
+  }
+
+  return "";
 }
 
 function apiBase() {
@@ -126,7 +134,7 @@ function renderSettings(values, chatId) {
 }
 
 async function loadSettings() {
-  const chatId = getChatId();
+  let chatId = getChatId();
 
   if (!tg?.initData) {
     groupStatusEl.textContent = "فقط از داخل تلگرام قابل استفاده است";
@@ -136,7 +144,7 @@ async function loadSettings() {
 
   if (!chatId || !String(chatId).startsWith("-")) {
     groupStatusEl.textContent = "گروه انتخاب نشده";
-    showError("این پنل باید از پنل مدیریت همان گروه باز شود.");
+    showError("این پنل باید از دستور /panel همان گروه باز شود.");
     return;
   }
 
@@ -151,7 +159,7 @@ async function loadSettings() {
       throw new Error(data.detail || "دسترسی به تنظیمات ممکن نیست");
     }
 
-    groupStatusEl.textContent = "مدیریت گروه فعال است";
+    groupStatusEl.textContent = `مدیریت گروه فعال است • ${data.chat_id}`;
     renderSettings(data.settings, chatId);
   } catch (error) {
     groupStatusEl.textContent = "دسترسی رد شد";
