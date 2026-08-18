@@ -28,7 +28,7 @@ def choose_language_keyboard():
     markup = types.InlineKeyboardMarkup()
     markup.row(
         types.InlineKeyboardButton("• فارسی", callback_data="lang:fa"),
-        types.InlineKeyboardButton("• English", callback_data="lang:en")
+        types.InlineKeyboardButton("• English", callback_data="lang:en"),
     )
     return markup
 
@@ -37,48 +37,20 @@ def start_keyboard(lang: str):
     markup = types.InlineKeyboardMarkup()
     bot_username = getattr(settings, "bot_username", "XAI_MASTER_BOT")
     miniapp_url = getattr(settings, "miniapp_url", "") or DEFAULT_MINIAPP_URL
-
-    markup.add(
-        types.InlineKeyboardButton(
-            get_text(lang, "add_group"),
-            url=f"https://t.me/{bot_username}?startgroup=true"
-        )
-    )
+    markup.add(types.InlineKeyboardButton(get_text(lang, "add_group"), url=f"https://t.me/{bot_username}?startgroup=true"))
     if miniapp_url:
-        markup.add(
-            types.InlineKeyboardButton(
-                get_text(lang, "dashboard"),
-                web_app=types.WebAppInfo(url=miniapp_url)
-            )
-        )
-    markup.add(
-        types.InlineKeyboardButton(
-            get_text(lang, "support"),
-            url=SUPPORT_URL
-        )
-    )
+        markup.add(types.InlineKeyboardButton(get_text(lang, "dashboard"), web_app=types.WebAppInfo(url=miniapp_url)))
+    markup.add(types.InlineKeyboardButton(get_text(lang, "support"), url=SUPPORT_URL))
     return markup
 
 
 def send_start(bot: TeleBot, message: Message, lang: str):
     name = message.from_user.first_name or "User"
     try:
-        text = (
-            get_text(lang, "welcome", name=name)
-            + "\n\n"
-            + get_text(lang, "features")
-            + "\n\n"
-            + get_text(lang, "admin")
-        )
+        text = get_text(lang, "welcome", name=name) + "\n\n" + get_text(lang, "features") + "\n\n" + get_text(lang, "admin")
     except Exception:
         text = "<b>XAI MASTER V3</b>\n\nAI Telegram Group Manager"
-
-    bot.send_message(
-        message.chat.id,
-        text,
-        reply_markup=start_keyboard(lang),
-        parse_mode="HTML"
-    )
+    bot.send_message(message.chat.id, text, reply_markup=start_keyboard(lang), parse_mode="HTML")
 
 
 def _target_from_reply(message: Message) -> Optional[int]:
@@ -107,11 +79,7 @@ def build_bot():
     def start_command(message: Message):
         lang = lang_for(message)
         if not get_user_language(message.from_user.id):
-            bot.send_message(
-                message.chat.id,
-                "• لطفاً زبان را انتخاب کنید\n• Please select your language:",
-                reply_markup=choose_language_keyboard()
-            )
+            bot.send_message(message.chat.id, "• لطفاً زبان را انتخاب کنید\n• Please select your language:", reply_markup=choose_language_keyboard())
             return
         send_start(bot, message, lang)
 
@@ -121,64 +89,35 @@ def build_bot():
         try:
             send_start(bot, message, lang)
         except Exception:
-            bot.reply_to(
-                message,
-                "<b>XAI MASTER V3</b>\nCommands:\n/panel\n/warn\n/settings"
-            )
+            bot.reply_to(message, "<b>XAI MASTER V3</b>\nCommands:\n/panel\n/warn\n/settings")
 
     @bot.message_handler(commands=["panel", "پنل"])
     def panel_command(message: Message):
-        """Open the group management panel safely from any chat.
-
-        Telegram Web App inline buttons are restricted in group chats, so a
-        group /panel command uses a normal Telegram deep-link to the bot's
-        private chat. The Mini App then receives Telegram initData there.
-        """
         try:
-            if message.chat.type not in {"group", "supergroup"}:
-                bot.reply_to(
-                    message,
-                    "پنل مدیریت گروه باید از داخل گروه انتخاب‌شده باز شود."
+            miniapp_url = getattr(settings, "miniapp_url", "") or "https://xai-master-production-c83b.up.railway.app/miniapp/"
+            if message.chat.type in {"group", "supergroup"}:
+                bot.send_message(
+                    message.chat.id,
+                    "<b>XAI MASTER V3 PANEL</b>\n\nبرای مدیریت این گروه، پنل را از لینک زیر باز کنید:",
+                    reply_markup=types.InlineKeyboardMarkup().add(
+                        types.InlineKeyboardButton("• باز کردن پنل مدیریت", url=miniapp_url)
+                    ),
+                    parse_mode="HTML",
                 )
                 return
-
-            bot_username = getattr(settings, "bot_username", "")
-            if not bot_username:
-                # Keep /panel responsive even if BOT_USERNAME is not configured.
-                bot.reply_to(
-                    message,
-                    "پنل هنوز تنظیم نشده است. BOT_USERNAME را در Railway تنظیم کنید."
-                )
-                return
-
-            # The Mini App is launched in the bot's private chat, where
-            # Telegram provides initData and WebApp buttons are supported.
-            startapp = f"group_{message.chat.id}"
-            private_panel_url = (
-                f"https://t.me/{bot_username}?startapp={startapp}"
-            )
-
-            markup = types.InlineKeyboardMarkup()
-            markup.add(
-                types.InlineKeyboardButton(
-                    "• باز کردن پنل مدیریت",
-                    url=private_panel_url
-                )
-            )
 
             bot.send_message(
                 message.chat.id,
-                "<b>XAI MASTER V3 PANEL</b>\n\nبرای مدیریت این گروه، پنل را باز کنید.",
-                reply_markup=markup,
-                parse_mode="HTML"
+                "<b>XAI MASTER V3 PANEL</b>",
+                reply_markup=types.InlineKeyboardMarkup().add(
+                    types.InlineKeyboardButton("• باز کردن پنل مدیریت", web_app=types.WebAppInfo(url=miniapp_url))
+                ),
+                parse_mode="HTML",
             )
         except Exception:
             logger.exception("panel error")
             try:
-                bot.send_message(
-                    message.chat.id,
-                    "پنل مدیریت موقتاً در دسترس نیست."
-                )
+                bot.send_message(message.chat.id, "پنل مدیریت موقتاً در دسترس نیست.")
             except Exception:
                 logger.exception("panel fallback error")
 
@@ -205,10 +144,7 @@ def build_bot():
         if not is_admin(message):
             bot.reply_to(message, get_text(lang, "only_admin"))
             return
-        bot.reply_to(
-            message,
-            "<b>XAI MASTER SETTINGS</b>\n\nبرای تنظیمات کامل گروه از /panel استفاده کنید."
-        )
+        bot.reply_to(message, "<b>XAI MASTER SETTINGS</b>\n\nبرای تنظیمات کامل گروه از /panel استفاده کنید.")
 
     @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("lang:"))
     def language_callback(call):
@@ -263,12 +199,7 @@ def build_bot():
             bot.reply_to(message, "Reply to user message.")
             return
         try:
-            bot.restrict_chat_member(
-                message.chat.id,
-                user_id,
-                can_send_messages=True,
-                can_send_media_messages=True
-            )
+            bot.restrict_chat_member(message.chat.id, user_id, can_send_messages=True, can_send_media_messages=True)
             bot.reply_to(message, "User unmuted.")
         except Exception:
             logger.exception("unmute error")
@@ -281,23 +212,10 @@ def build_bot():
             if member.is_bot:
                 continue
             try:
-                bot.restrict_chat_member(
-                    message.chat.id,
-                    member.id,
-                    can_send_messages=False
-                )
+                bot.restrict_chat_member(message.chat.id, member.id, can_send_messages=False)
                 markup = types.InlineKeyboardMarkup()
-                markup.add(
-                    types.InlineKeyboardButton(
-                        "• Verify",
-                        callback_data=f"verify:{message.chat.id}:{member.id}"
-                    )
-                )
-                bot.send_message(
-                    message.chat.id,
-                    "Please verify you are human.",
-                    reply_markup=markup
-                )
+                markup.add(types.InlineKeyboardButton("• Verify", callback_data=f"verify:{message.chat.id}:{member.id}"))
+                bot.send_message(message.chat.id, "Please verify you are human.", reply_markup=markup)
             except Exception:
                 logger.exception("verify error")
 
@@ -310,24 +228,14 @@ def build_bot():
             if call.from_user.id != user_id:
                 bot.answer_callback_query(call.id, "Not for you", show_alert=True)
                 return
-            bot.restrict_chat_member(
-                chat_id,
-                user_id,
-                can_send_messages=True,
-                can_send_media_messages=True
-            )
+            bot.restrict_chat_member(chat_id, user_id, can_send_messages=True, can_send_media_messages=True)
             bot.answer_callback_query(call.id, "Verified")
             bot.edit_message_text("Verified", chat_id, call.message.message_id)
         except Exception:
             logger.exception("verification error")
             bot.answer_callback_query(call.id, "Verification failed", show_alert=True)
 
-    @bot.message_handler(
-        content_types=[
-            "text", "photo", "video", "document",
-            "animation", "audio", "voice", "sticker"
-        ]
-    )
+    @bot.message_handler(content_types=["text", "photo", "video", "document", "animation", "audio", "voice", "sticker"])
     def moderation_handler(message: Message):
         if message.chat.type in {"group", "supergroup"}:
             try:
@@ -341,11 +249,7 @@ def build_bot():
 def run_bot():
     bot = build_bot()
     logger.info("XAI MASTER V3 started")
-    bot.infinity_polling(
-        skip_pending=True,
-        timeout=30,
-        long_polling_timeout=30
-    )
+    bot.infinity_polling(skip_pending=True, timeout=30, long_polling_timeout=30)
 
 
 if __name__ == "__main__":
