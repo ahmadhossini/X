@@ -52,28 +52,6 @@ function headers() {
   };
 }
 
-async function loadMarket() {
-  try {
-    const health = await fetch(`${apiBase()}/health`);
-    if (!health.ok) throw new Error("API unavailable");
-    statusEl.textContent = "آنلاین";
-
-    const response = await fetch(`${apiBase()}/api/market/crypto`);
-    if (!response.ok) throw new Error("Market unavailable");
-
-    const assets = await response.json();
-    for (const asset of assets) {
-      const element = document.getElementById(asset.symbol.toLowerCase());
-      if (element && asset.price_usd != null) {
-        element.textContent = `$${Number(asset.price_usd).toLocaleString()}`;
-      }
-    }
-  } catch (error) {
-    statusEl.textContent = "خطا در اتصال";
-    console.error(error);
-  }
-}
-
 function renderSettings(values, chatId) {
   settingsList.innerHTML = "";
 
@@ -96,8 +74,6 @@ function renderSettings(values, chatId) {
     const button = document.createElement("button");
     button.className = `switch${enabled ? " on" : ""}`;
     button.type = "button";
-    button.setAttribute("aria-label", label);
-    button.setAttribute("aria-pressed", String(enabled));
 
     button.addEventListener("click", async () => {
       clearError();
@@ -110,15 +86,13 @@ function renderSettings(values, chatId) {
             headers: headers(),
             body: JSON.stringify({
               feature,
-              enabled: !Boolean(values[feature])
+              enabled: !enabled
             })
           }
         );
 
         const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.detail || "خطا در ذخیره تنظیمات");
-        }
+        if (!response.ok) throw new Error(data.detail || "خطا در ذخیره تنظیمات");
 
         renderSettings(data.settings, chatId);
         groupStatusEl.textContent = "تنظیمات ذخیره شد";
@@ -134,7 +108,7 @@ function renderSettings(values, chatId) {
 }
 
 async function loadSettings() {
-  let chatId = getChatId();
+  const chatId = getChatId();
 
   if (!tg?.initData) {
     groupStatusEl.textContent = "فقط از داخل تلگرام قابل استفاده است";
@@ -149,15 +123,14 @@ async function loadSettings() {
   }
 
   try {
+    statusEl.textContent = "آنلاین";
     const response = await fetch(
       `${apiBase()}/api/groups/${encodeURIComponent(chatId)}/settings`,
       { headers: headers() }
     );
 
     const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.detail || "دسترسی به تنظیمات ممکن نیست");
-    }
+    if (!response.ok) throw new Error(data.detail || "دسترسی ممکن نیست");
 
     groupStatusEl.textContent = `مدیریت گروه فعال است • ${data.chat_id}`;
     renderSettings(data.settings, chatId);
@@ -174,5 +147,4 @@ function initTelegram() {
 }
 
 initTelegram();
-loadMarket();
 loadSettings();
