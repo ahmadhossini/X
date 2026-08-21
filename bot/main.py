@@ -6,15 +6,26 @@ from typing import Optional
 from telebot import TeleBot, types
 from telebot.types import Message
 
+from ai.engine import AIEngine
 from bot.services.moderation import GroupModeration
 from bot.services.user_language import get_user_language, set_user_language
 from bot.services.language_service import get_text
+from core.ai_limits import check_ai_limit
 from core.config import settings
 
 logger = logging.getLogger(__name__)
 
 SUPPORT_URL = "https://t.me/XAIMASTER_Official"
 DEFAULT_MINIAPP_URL = "https://xai-master-production-c83b.up.railway.app/miniapp/"
+AI_SYSTEM_PROMPT = """
+نام تو XAI MASTER است.
+تو دستیار هوش مصنوعی ربات تلگرام XAI MASTER هستی.
+مثل یک انسان طبیعی، دوستانه و دقیق با کاربر گفتگو کن.
+اگر کاربر فارسی صحبت کرد، فارسی پاسخ بده.
+اگر انگلیسی صحبت کرد، انگلیسی پاسخ بده.
+برای سلام و گفتگوهای عادی هم پاسخ طبیعی بده.
+پاسخ‌ها روشن، مفید و تا حد امکان کوتاه باشند.
+""".strip()
 
 
 def lang_for(message: Message) -> str:
@@ -60,7 +71,7 @@ def send_start(bot: TeleBot, message: Message, lang: str):
     try:
         text = get_text(lang, "welcome", name=name) + "\n\n" + get_text(lang, "features") + "\n\n" + get_text(lang, "admin")
     except Exception:
-        text = "<b>XAI MASTER V3</b>\n\nAI Telegram Group Manager"
+        text = f"<b>XAI MASTER V3</b>\n\nسلام {name}. من XAI MASTER هستم، دستیار هوشمند مدیریت و گفتگو در تلگرام.\n\nربات را به گروه اضافه کنید یا همین‌جا با من گفتگو کنید."
     bot.send_message(message.chat.id, text, reply_markup=start_keyboard(bot, lang), parse_mode="HTML")
 
 
@@ -70,12 +81,22 @@ def _target_from_reply(message: Message) -> Optional[int]:
     return None
 
 
+def _ai_prompt(text: str, bot_username: str) -> str:
+    prompt = text.strip()
+    if bot_username:
+        prompt = prompt.replace(f"@{bot_username}", "").strip()
+    if prompt.lower().startswith("xai"):
+        prompt = prompt[3:].lstrip(" ,:،")
+    return prompt or "سلام"
+
+
 def build_bot():
     if not settings.bot_token:
         raise RuntimeError("BOT_TOKEN is missing")
 
     bot = TeleBot(settings.bot_token, parse_mode="HTML")
     moderation = GroupModeration(bot)
+    ai = AIEngine()
 
     def is_admin(message: Message):
         if message.chat.type not in {"group", "supergroup"}:
@@ -133,7 +154,7 @@ def build_bot():
                 deep_link = f"https://t.me/{bot_username}?start=panel_{message.chat.id}"
                 bot.send_message(
                     message.chat.id,
-                    "<b>XAI MASTER V3 PANEL</b>\n\nبرای مدیریت این گروه، ابتدا پنل را در چت خصوصی ربات باز کنید:",
+                    "<b>XAI MASTER V3 PANEL</b>\n\nبرای مدیریت این گروه، پنل را در چت خصوصی ربات باز کنید:",
                     reply_markup=types.InlineKeyboardMarkup().add(
                         types.InlineKeyboardButton("• باز کردن پنل مدیریت", url=deep_link)
                     ),
@@ -270,7 +291,55 @@ def build_bot():
             logger.exception("verification error")
             bot.answer_callback_query(call.id, "Verification failed", show_alert=True)
 
-    @bot.message_handler(content_types=["text", "photo", "video", "document", "animation", "audio", "voice", "sticker"])
+    @bot.message_handler(content_types=["text"])
+    def ai_message_handler(message: Message):
+        text = (message.text or "").strip()
+        if not text or message.from_user.is_bot:
+            return
+
+        is_private = message.chat.type == "private"
+        bot_username = get_bot_username(bot)
+
+        if not is_private:
+            lowered = text.lower()
+            mentioned = bool(bot_username and f"@{bot_username.lower()}" in lowered)
+            called = lowered.startswith("xai") or lowered.startswith("xai master")
+            if not (mentioned or called):
+                return
+
+        try:
+            allowed, remaining = check_ai_limit(
+                user_id=message.from_user.id,
+                chat_id=message.chat.id,
+                private=is_private,
+            )
+        except Exception:
+            logger.exception("AI limit check failed")
+            bot.reply_to(message, "سرویس هوش مصنوعی موقتاً در دسترس نیست.")
+            return
+
+        if not allowed:
+            if is_private:
+                bot.reply_to(message, "سهمیه روزانه ۲۰ پیام خصوصی شما تمام شده است. فردا دوباره می‌توانید استفاده کنید.")
+            else:
+                bot.reply_to(
+                    message,
+                    "سهمیه روزانه ۵ پیام AI شما در این گروه تمام شد.\n\nبرای ادامه گفتگو، وارد پیام خصوصی XAI MASTER شوید و از همان‌جا ادامه دهید.",
+                )
+            return
+
+        prompt = _ai_prompt(text, bot_username)
+        try:
+            reply = ai.ask(prompt, system=AI_SYSTEM_PROMPT)
+            if not reply:
+                raise RuntimeError("empty AI response")
+            suffix = f"\n\nپیام باقی‌مانده امروز: {remaining}" if remaining is not None else ""
+            bot.reply_to(message, f"{reply}{suffix}")
+        except Exception:
+            logger.exception("AI reply error")
+            bot.reply_to(message, "در حال حاضر نتوانستم پاسخ بدهم. لطفاً چند لحظه بعد دوباره تلاش کنید.")
+
+    @bot.message_handler(content_types=["photo", "video", "document", "animation", "audio", "voice", "sticker"])
     def moderation_handler(message: Message):
         if message.chat.type in {"group", "supergroup"}:
             try:
