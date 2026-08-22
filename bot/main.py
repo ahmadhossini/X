@@ -109,6 +109,18 @@ def build_bot():
         except Exception:
             return False
 
+    def can_delete_messages(chat_id: int) -> bool:
+        """Check that XAI MASTER has Telegram permission to delete group messages."""
+        try:
+            me = bot.get_me()
+            member = bot.get_chat_member(chat_id, me.id)
+            return member.status == "creator" or (
+                member.status == "administrator" and bool(getattr(member, "can_delete_messages", False))
+            )
+        except Exception:
+            logger.exception("could not check delete permission")
+            return False
+
     @bot.message_handler(commands=["start"])
     def start_command(message: Message):
         lang = lang_for(message)
@@ -213,6 +225,9 @@ def build_bot():
         if not is_admin(message):
             bot.reply_to(message, get_text(lang, "only_admin"))
             return
+        if not can_delete_messages(message.chat.id):
+            bot.reply_to(message, "برای حذف پیام‌ها، XAI MASTER باید در این گروه دسترسی «حذف پیام‌ها» داشته باشد.")
+            return
         parts = (message.text or "").split(maxsplit=1)
         if len(parts) < 2:
             bot.reply_to(message, "فرمت: /autodelete 10m\nنمونه‌ها: 30s، 10m، 1h، 1d\nخاموش کردن: /autodelete off")
@@ -228,9 +243,10 @@ def build_bot():
 
     @bot.message_handler(commands=["delete", "del", "پاک", "حذف"])
     def delete_command(message: Message):
-        if message.chat.type not in {"group", "supergroup"}:
+        if message.chat.type not in {"group", "supergroup"} or not is_admin(message):
             return
-        if not is_admin(message):
+        if not can_delete_messages(message.chat.id):
+            bot.reply_to(message, "برای حذف پیام‌ها، XAI MASTER باید دسترسی «حذف پیام‌ها» داشته باشد.")
             return
         parts = (message.text or "").split(maxsplit=1)
         if len(parts) == 1:
@@ -238,9 +254,9 @@ def build_bot():
                 bot.reply_to(message, "برای حذف دستی، روی پیام موردنظر ریپلای کنید و /delete بفرستید.")
             return
         try:
-            count = int(parts[1])
+            count = auto_delete.parse_count(parts[1])
         except ValueError:
-            bot.reply_to(message, "تعداد باید یک عدد بین 1 تا 100 باشد.")
+            bot.reply_to(message, "تعداد پیام باید بین 1 تا 100 باشد.\nمثال: /حذف 10پیام")
             return
         deleted = auto_delete.delete_recent(message.chat.id, count)
         try:
@@ -248,7 +264,9 @@ def build_bot():
         except Exception:
             pass
         if deleted:
-            logger.info("manually deleted %s messages in %s", deleted, message.chat.id)
+            bot.send_message(message.chat.id, f"{deleted} پیام حذف شد.")
+        else:
+            bot.send_message(message.chat.id, "پیامی برای حذف پیدا نشد. برای حذف یک پیام مشخص، روی همان پیام ریپلای کنید و /delete بفرستید.")
 
     @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("lang:"))
     def language_callback(call):
