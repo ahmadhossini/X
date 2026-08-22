@@ -7,6 +7,7 @@ from telebot import TeleBot, types
 from telebot.types import Message
 
 from ai.engine import AIEngine
+from bot.services.auto_delete import AutoDeleteManager
 from bot.services.moderation import GroupModeration
 from bot.services.user_language import get_user_language, set_user_language
 from bot.services.language_service import get_text
@@ -96,6 +97,7 @@ def build_bot():
 
     bot = TeleBot(settings.bot_token, parse_mode="HTML")
     moderation = GroupModeration(bot)
+    auto_delete = AutoDeleteManager(bot)
     ai = AIEngine()
 
     def is_admin(message: Message):
@@ -140,7 +142,7 @@ def build_bot():
         try:
             send_start(bot, message, lang)
         except Exception:
-            bot.reply_to(message, "<b>XAI MASTER V3</b>\nCommands:\n/panel\n/warn\n/settings")
+            bot.reply_to(message, "<b>XAI MASTER V3</b>\nCommands:\n/panel\n/warn\n/settings\n/autodelete\n/delete")
 
     @bot.message_handler(commands=["panel", "پنل"])
     def panel_command(message: Message):
@@ -200,7 +202,53 @@ def build_bot():
         if not is_admin(message):
             bot.reply_to(message, get_text(lang, "only_admin"))
             return
-        bot.reply_to(message, "<b>XAI MASTER SETTINGS</b>\n\nبرای تنظیمات کامل گروه از /panel استفاده کنید.")
+        bot.reply_to(message, "<b>XAI MASTER SETTINGS</b>\n\nبرای تنظیمات کامل گروه از /panel استفاده کنید.\n\nپاکسازی خودکار پیام‌ها: /autodelete 10m\nخاموش کردن: /autodelete off\nپاک کردن دستی: روی پیام ریپلای کنید و /delete بفرستید")
+
+    @bot.message_handler(commands=["autodelete", "auto_delete", "پاکسازی_خودکار", "حذف_خودکار"])
+    def autodelete_command(message: Message):
+        lang = lang_for(message)
+        if message.chat.type not in {"group", "supergroup"}:
+            bot.reply_to(message, "این قابلیت فقط داخل گروه قابل استفاده است.")
+            return
+        if not is_admin(message):
+            bot.reply_to(message, get_text(lang, "only_admin"))
+            return
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) < 2:
+            bot.reply_to(message, "فرمت: /autodelete 10m\nنمونه‌ها: 30s، 10m، 1h، 1d\nخاموش کردن: /autodelete off")
+            return
+        try:
+            seconds = auto_delete.set_delay(message.chat.id, parts[1])
+            if seconds == 0:
+                bot.reply_to(message, "حذف خودکار پیام‌ها خاموش شد.")
+            else:
+                bot.reply_to(message, f"حذف خودکار فعال شد. پیام کاربران بعد از {parts[1].strip()} حذف می‌شود.")
+        except ValueError:
+            bot.reply_to(message, "زمان نامعتبر است. از نمونه‌هایی مثل 30s، 10m، 1h یا 1d استفاده کنید.")
+
+    @bot.message_handler(commands=["delete", "del", "پاک", "حذف"])
+    def delete_command(message: Message):
+        if message.chat.type not in {"group", "supergroup"}:
+            return
+        if not is_admin(message):
+            return
+        parts = (message.text or "").split(maxsplit=1)
+        if len(parts) == 1:
+            if not auto_delete.delete_reply(message):
+                bot.reply_to(message, "برای حذف دستی، روی پیام موردنظر ریپلای کنید و /delete بفرستید.")
+            return
+        try:
+            count = int(parts[1])
+        except ValueError:
+            bot.reply_to(message, "تعداد باید یک عدد بین 1 تا 100 باشد.")
+            return
+        deleted = auto_delete.delete_recent(message.chat.id, count)
+        try:
+            bot.delete_message(message.chat.id, message.message_id)
+        except Exception:
+            pass
+        if deleted:
+            logger.info("manually deleted %s messages in %s", deleted, message.chat.id)
 
     @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("lang:"))
     def language_callback(call):
@@ -297,6 +345,9 @@ def build_bot():
         if not text or message.from_user.is_bot:
             return
 
+        if message.chat.type in {"group", "supergroup"} and not is_admin(message):
+            auto_delete.schedule(message)
+
         is_private = message.chat.type == "private"
         bot_username = get_bot_username(bot)
 
@@ -342,6 +393,8 @@ def build_bot():
     @bot.message_handler(content_types=["photo", "video", "document", "animation", "audio", "voice", "sticker"])
     def moderation_handler(message: Message):
         if message.chat.type in {"group", "supergroup"}:
+            if not is_admin(message):
+                auto_delete.schedule(message)
             try:
                 moderation.handle(message)
             except Exception:
