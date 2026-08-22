@@ -80,6 +80,18 @@ class AutoDeleteManager:
             raise ValueError("duration must be between 5 seconds and 7 days")
         return seconds
 
+    @staticmethod
+    def parse_count(value: str) -> int:
+        """Accept plain counts and natural Persian forms such as '10پیام'."""
+        raw = value.strip().lower()
+        match = re.fullmatch(r"(\d+)\s*(?:پیام|پیام‌ها|پیامها|message|messages)?", raw)
+        if not match:
+            raise ValueError("invalid count")
+        count = int(match.group(1))
+        if not 1 <= count <= 100:
+            raise ValueError("count must be between 1 and 100")
+        return count
+
     def set_delay(self, chat_id: int, value: str) -> int:
         seconds = self.parse_duration(value)
         with self._lock:
@@ -132,12 +144,17 @@ class AutoDeleteManager:
         target = message.reply_to_message
         if not target:
             return False
+        deleted = False
         try:
             self.bot.delete_message(message.chat.id, target.message_id)
-            self.bot.delete_message(message.chat.id, message.message_id)
-            return True
+            deleted = True
         except Exception:
-            return False
+            pass
+        try:
+            self.bot.delete_message(message.chat.id, message.message_id)
+        except Exception:
+            pass
+        return deleted
 
     def delete_recent(self, chat_id: int, count: int) -> int:
         count = max(1, min(count, 100))
