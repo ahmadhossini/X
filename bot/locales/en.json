@@ -1,7 +1,7 @@
 {
   "choose_language": "Please select your language.",
   "welcome": "XAI MASTER V3\n\nHello {name}\n\nI’m XAI MASTER, an intelligent Telegram group manager and AI assistant.\n\nSecurity, member management, message control, and AI conversations in one bot.",
-  "features": "Features:\n\n• Professional group management\n• Anti-spam, anti-link, and anti-flood\n• Warnings and member management\n• Group management panel\n• Persian and English AI\n• Mini App dashboard",
+  "features": "Features:\n\n• Professional group management\n• Anti-spam, anti-link, and anti-flood\n• Warnings and member management\n• Group management panel\n• Persian and English AI\n• Mini App dashboard\n\nQuick guide for group admins:\n• /panel — open the group management panel\n• /settings — view management settings\n• /warn — warn a user by replying to their message\n• /ban — ban a user by replying to their message\n• /unban — remove a user's ban by replying\n• /unmute — remove restrictions by replying\n• /autodelete 10m — automatically delete user messages after 10 minutes\n• /autodelete off — disable automatic deletion\n• /delete — delete a replied message\n• /delete 10 — delete the 10 most recent tracked messages\n\nThe bot needs the required admin permissions in the group for management features.",
   "add_group": "Add Bot To Group",
   "dashboard": "Management Dashboard",
   "support": "Support Channel",
