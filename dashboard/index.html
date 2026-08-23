@@ -49,7 +49,6 @@
       <section id="page-settings" class="page" hidden>
         <div class="group-hero glass-card">
           <div class="group-heading">
-            <button id="back-home" class="icon-button" type="button" aria-label="back">‹</button>
             <img id="group-photo" class="avatar avatar-lg" alt="group" hidden>
             <div id="group-avatar-fallback" class="avatar avatar-lg avatar-fallback">G</div>
             <div class="group-copy">
@@ -57,6 +56,7 @@
               <p id="group-username">گروه تلگرام</p>
               <span id="group-members" class="members-label">0 عضو</span>
             </div>
+            <button id="back-home" class="icon-button" type="button" aria-label="back">‹</button>
           </div>
         </div>
 
@@ -103,27 +103,11 @@
           <h1 data-i18n="help_title">راهنمای XAI MASTER</h1>
           <p data-i18n="help_intro">مدیریت هوشمند گروه با امنیت، اتوماسیون و دستیار هوش مصنوعی.</p>
         </div>
-
-        <article class="help-card glass-card">
-          <h2>🚀 شروع کار</h2>
-          <p data-i18n="help_start">ربات را به گروه اضافه کنید، آن را مدیر کنید و سپس از دستور /panel برای باز کردن پنل مدیریت همان گروه استفاده کنید.</p>
-        </article>
-        <article class="help-card glass-card">
-          <h2>🛡️ امنیت گروه</h2>
-          <p data-i18n="help_security">از بخش تنظیمات می‌توانید ضد لینک، ضد اسپم، ضد فلود، فیلتر کلمات نامناسب و سایر کنترل‌های امنیتی را فعال یا غیرفعال کنید.</p>
-        </article>
-        <article class="help-card glass-card">
-          <h2>🤖 هوش مصنوعی</h2>
-          <p data-i18n="help_ai">در گروه ربات را با نام یا @username صدا بزنید و سؤال خود را ارسال کنید. در پیام خصوصی نیز می‌توانید مستقیماً گفتگو کنید.</p>
-        </article>
-        <article class="help-card glass-card">
-          <h2>🧹 حذف پیام</h2>
-          <p data-i18n="help_delete">مدیران می‌توانند از /delete یا /حذف برای حذف پیام‌ها و از /autodelete برای تنظیم حذف خودکار استفاده کنند.</p>
-        </article>
-        <article class="help-card glass-card">
-          <h2>💡 نکته</h2>
-          <p data-i18n="help_permissions">برای عملکرد کامل، XAI MASTER باید دسترسی‌های مدیریتی موردنیاز، مخصوصاً حذف پیام‌ها را داشته باشد.</p>
-        </article>
+        <article class="help-card glass-card"><h2>🚀 شروع کار</h2><p data-i18n="help_start">ربات را به گروه اضافه کنید، آن را مدیر کنید و سپس از دستور /panel برای باز کردن پنل مدیریت همان گروه استفاده کنید.</p></article>
+        <article class="help-card glass-card"><h2>🛡️ امنیت گروه</h2><p data-i18n="help_security">از بخش تنظیمات می‌توانید ضد لینک، ضد اسپم، ضد فلود، فیلتر کلمات نامناسب و سایر کنترل‌های امنیتی را فعال یا غیرفعال کنید.</p></article>
+        <article class="help-card glass-card"><h2>🤖 هوش مصنوعی</h2><p data-i18n="help_ai">در گروه ربات را با نام یا @username صدا بزنید و سؤال خود را ارسال کنید. در پیام خصوصی نیز می‌توانید مستقیماً گفتگو کنید.</p></article>
+        <article class="help-card glass-card"><h2>🧹 حذف پیام</h2><p data-i18n="help_delete">مدیران می‌توانند از /delete یا /حذف برای حذف پیام‌ها و از /autodelete برای تنظیم حذف خودکار استفاده کنند.</p></article>
+        <article class="help-card glass-card"><h2>💡 نکته</h2><p data-i18n="help_permissions">برای عملکرد کامل، XAI MASTER باید دسترسی‌های مدیریتی موردنیاز، مخصوصاً حذف پیام‌ها را داشته باشد.</p></article>
       </section>
     </main>
 
@@ -131,7 +115,6 @@
       <button class="nav-item active" data-page="home" type="button"><span class="nav-symbol">⌂</span><span data-i18n="home">خانه</span></button>
       <button class="nav-item" data-page="help" type="button"><span class="nav-symbol">?</span><span data-i18n="help">راهنمایی</span></button>
     </nav>
-
     <div id="error" class="toast error" hidden></div>
   </div>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
