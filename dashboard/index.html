@@ -2,39 +2,138 @@
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f19">
   <title>XAI MASTER</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main class="container">
-    <header>
-      <h1>XAI MASTER</h1>
-      <p>پنل مدیریت گروه</p>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-mark">X</div>
+      <div>
+        <div class="brand-name">XAI MASTER</div>
+        <div class="brand-subtitle" id="page-subtitle">خانه</div>
+      </div>
+      <div class="api-pill"><span class="status-dot"></span><span id="api-label">API آنلاین</span></div>
     </header>
 
-    <section class="profile-card">
-      <img id="user-photo" src="" alt="profile" hidden>
-      <div>
-        <span>کاربر</span>
-        <strong id="user-name">در حال دریافت...</strong>
-      </div>
-      <div>
-        <span>وضعیت API</span>
-        <strong id="status">در حال بررسی...</strong>
-      </div>
-    </section>
+    <main id="app" class="page-wrap">
+      <section id="page-home" class="page active">
+        <div class="profile-hero glass-card">
+          <img id="user-photo" class="avatar avatar-xl" alt="profile" hidden>
+          <div id="user-avatar-fallback" class="avatar avatar-xl avatar-fallback">X</div>
+          <div class="profile-copy">
+            <span class="eyebrow" data-i18n="welcome_back">خوش آمدید</span>
+            <h1 id="user-name">در حال دریافت...</h1>
+            <p id="user-username">@...</p>
+          </div>
+        </div>
 
-    <section id="security" class="settings-panel">
-      <div class="section-head">
-        <h2>امنیت گروه</h2>
-        <span id="group-status">در حال اتصال...</span>
-      </div>
-      <div id="settings-list" class="settings-list"></div>
-    </section>
+        <div class="section-title-row">
+          <div>
+            <h2 data-i18n="your_groups">گروه‌های شما</h2>
+            <p data-i18n="managed_groups">گروه‌هایی که XAI MASTER در آن‌ها به شما دسترسی مدیریتی دارد</p>
+          </div>
+          <span id="group-count" class="count-badge">0</span>
+        </div>
 
-    <p id="error" class="error" hidden></p>
-  </main>
+        <div id="groups-list" class="groups-list"></div>
+        <div id="groups-empty" class="empty-state glass-card" hidden>
+          <div class="empty-icon">+</div>
+          <h3 data-i18n="no_groups">گروهی پیدا نشد</h3>
+          <p data-i18n="no_groups_desc">ربات را به یک گروه اضافه کنید و دسترسی مدیریتی لازم را بدهید.</p>
+        </div>
+      </section>
+
+      <section id="page-settings" class="page" hidden>
+        <div class="group-hero glass-card">
+          <div class="group-heading">
+            <button id="back-home" class="icon-button" type="button" aria-label="back">‹</button>
+            <img id="group-photo" class="avatar avatar-lg" alt="group" hidden>
+            <div id="group-avatar-fallback" class="avatar avatar-lg avatar-fallback">G</div>
+            <div class="group-copy">
+              <h1 id="group-name">گروه</h1>
+              <p id="group-username">گروه تلگرام</p>
+              <span id="group-members" class="members-label">0 عضو</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-title-row compact">
+          <div>
+            <h2 data-i18n="group_settings">تنظیمات گروه</h2>
+            <p data-i18n="group_settings_desc">امنیت و رفتار ربات را از یک صفحه کنترل کنید.</p>
+          </div>
+        </div>
+
+        <div class="settings-block glass-card">
+          <div class="block-head">
+            <div>
+              <h3 data-i18n="force_join">عضویت اجباری</h3>
+              <p data-i18n="force_join_desc">کاربر برای فعالیت باید عضو کانال‌های مشخص‌شده باشد.</p>
+            </div>
+            <button id="force-join-switch" class="switch" type="button" aria-label="force join"></button>
+          </div>
+          <div id="force-join-config" class="config-area">
+            <label class="field-label" data-i18n="required_channels_count">تعداد کانال‌های اجباری</label>
+            <input id="force-join-count" class="text-input" type="number" min="0" max="20" inputmode="numeric" placeholder="0">
+            <label class="field-label" data-i18n="channel_links">لینک کانال‌ها</label>
+            <textarea id="force-join-channels" class="text-input textarea" rows="4" placeholder="https://t.me/example"></textarea>
+            <button id="save-force-join" class="primary-button" type="button" data-i18n="save">ذخیره تغییرات</button>
+          </div>
+        </div>
+
+        <div class="settings-block glass-card">
+          <div class="block-head">
+            <div>
+              <h3 data-i18n="security">امنیت</h3>
+              <p data-i18n="security_desc">قابلیت‌های امنیتی گروه را کنترل کنید.</p>
+            </div>
+          </div>
+          <div id="settings-list" class="settings-list"></div>
+        </div>
+
+        <p id="settings-message" class="notice" hidden></p>
+      </section>
+
+      <section id="page-help" class="page" hidden>
+        <div class="help-hero glass-card">
+          <span class="help-emoji">🤖</span>
+          <h1 data-i18n="help_title">راهنمای XAI MASTER</h1>
+          <p data-i18n="help_intro">مدیریت هوشمند گروه با امنیت، اتوماسیون و دستیار هوش مصنوعی.</p>
+        </div>
+
+        <article class="help-card glass-card">
+          <h2>🚀 شروع کار</h2>
+          <p data-i18n="help_start">ربات را به گروه اضافه کنید، آن را مدیر کنید و سپس از دستور /panel برای باز کردن پنل مدیریت همان گروه استفاده کنید.</p>
+        </article>
+        <article class="help-card glass-card">
+          <h2>🛡️ امنیت گروه</h2>
+          <p data-i18n="help_security">از بخش تنظیمات می‌توانید ضد لینک، ضد اسپم، ضد فلود، فیلتر کلمات نامناسب و سایر کنترل‌های امنیتی را فعال یا غیرفعال کنید.</p>
+        </article>
+        <article class="help-card glass-card">
+          <h2>🤖 هوش مصنوعی</h2>
+          <p data-i18n="help_ai">در گروه ربات را با نام یا @username صدا بزنید و سؤال خود را ارسال کنید. در پیام خصوصی نیز می‌توانید مستقیماً گفتگو کنید.</p>
+        </article>
+        <article class="help-card glass-card">
+          <h2>🧹 حذف پیام</h2>
+          <p data-i18n="help_delete">مدیران می‌توانند از /delete یا /حذف برای حذف پیام‌ها و از /autodelete برای تنظیم حذف خودکار استفاده کنند.</p>
+        </article>
+        <article class="help-card glass-card">
+          <h2>💡 نکته</h2>
+          <p data-i18n="help_permissions">برای عملکرد کامل، XAI MASTER باید دسترسی‌های مدیریتی موردنیاز، مخصوصاً حذف پیام‌ها را داشته باشد.</p>
+        </article>
+      </section>
+    </main>
+
+    <nav class="bottom-nav" aria-label="navigation">
+      <button class="nav-item active" data-page="home" type="button"><span class="nav-symbol">⌂</span><span data-i18n="home">خانه</span></button>
+      <button class="nav-item" data-page="help" type="button"><span class="nav-symbol">?</span><span data-i18n="help">راهنمایی</span></button>
+    </nav>
+
+    <div id="error" class="toast error" hidden></div>
+  </div>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="app.js"></script>
 </body>
