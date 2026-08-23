@@ -66,6 +66,14 @@ class GroupSettingsStore:
         values["force_join_count"] = int(values.get("force_join_count", len(values["force_join_channels"])))
         return GroupSettings(**values)
 
+    def touch(self, chat_id: int) -> GroupSettings:
+        settings = self.get(chat_id)
+        with self._lock:
+            data = self._load()
+            data.setdefault(str(chat_id), asdict(settings))
+            self._save(data)
+        return settings
+
     def set(self, chat_id: int, feature: str, enabled: bool) -> GroupSettings:
         settings = self.get(chat_id)
         if not hasattr(settings, feature):
