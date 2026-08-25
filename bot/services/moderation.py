@@ -32,6 +32,30 @@ class GroupModeration:
         except Exception:
             return False
 
+    def _warn_user(self, message: Message, reason: str, count: int) -> None:
+        """Send a concise automatic warning when a moderation rule is violated."""
+        if not message.from_user:
+            return
+        try:
+            name = message.from_user.first_name or "کاربر"
+            self.bot.reply_to(
+                message,
+                f"{name}، این پیام به دلیل رعایت نکردن قوانین گروه حذف شد.\n"
+                f"دلیل: {reason}\n"
+                f"تعداد هشدارها: {count}",
+            )
+        except Exception:
+            # The offending message may already be deleted or unavailable for
+            # replying. Warning failure must never break moderation.
+            try:
+                self.bot.send_message(
+                    message.chat.id,
+                    f"کاربر {message.from_user.first_name or 'کاربر'} به دلیل «{reason}» هشدار گرفت.\n"
+                    f"تعداد هشدارها: {count}",
+                )
+            except Exception:
+                pass
+
     def handle(self, message: Message) -> bool:
         """Apply enabled group moderation rules to a user message.
 
@@ -46,9 +70,10 @@ class GroupModeration:
         text = message.text or message.caption or ""
 
         if cfg.forward_lock and getattr(message, "forward_date", None):
-            if self._delete(message):
-                self.warn(message.chat.id, message.from_user.id, "Forward")
-                return True
+            count = self.warn(message.chat.id, message.from_user.id, "ارسال پیام فورواردی")
+            self._warn_user(message, "ارسال پیام فورواردی", count)
+            self._delete(message)
+            return True
 
         key = (message.chat.id, message.from_user.id)
         now = monotonic()
@@ -65,26 +90,29 @@ class GroupModeration:
                     permissions=self._mute_permissions(),
                     until_date=int(time()) + 60,
                 )
-                self.warn(message.chat.id, message.from_user.id, "ارسال پیام‌های متوالی")
+                count = self.warn(message.chat.id, message.from_user.id, "ارسال پیام‌های متوالی")
+                self._warn_user(message, "ارسال پیام‌های متوالی", count)
+                self._delete(message)
                 return True
             except Exception:
                 return False
 
         checks = [
             (cfg.anti_link, moderation_engine.contains_link, "ارسال لینک"),
-            (cfg.mention_lock, moderation_engine.contains_mention, "Mention"),
-            (cfg.hashtag_lock, moderation_engine.contains_hashtag, "Hashtag"),
+            (cfg.mention_lock, moderation_engine.contains_mention, "ارسال یوزرنیم"),
+            (cfg.hashtag_lock, moderation_engine.contains_hashtag, "ارسال هشتگ"),
             (cfg.phone_lock, moderation_engine.contains_phone, "شماره تلفن"),
             (cfg.profanity_filter, moderation_engine.contains_profanity, "الفاظ نامناسب"),
             (cfg.drug_filter, moderation_engine.contains_drug_content, "محتوای مواد مخدر"),
-            (cfg.nsfw_filter, moderation_engine.contains_nsfw_content, "محتوای جنسی"),
+            (cfg.nsfw_filter, moderation_engine.contains_nsfw_content, "محتوای نامناسب"),
         ]
 
         for enabled, checker, reason in checks:
             if enabled and checker(text):
-                if self._delete(message):
-                    self.warn(message.chat.id, message.from_user.id, reason)
-                    return True
+                count = self.warn(message.chat.id, message.from_user.id, reason)
+                self._warn_user(message, reason, count)
+                self._delete(message)
+                return True
 
         return False
 
