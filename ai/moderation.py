@@ -4,19 +4,27 @@ import re
 
 LINK_RE = re.compile(r"(?:https?://|www\.|t\.me/|telegram\.me/|tg://)", re.IGNORECASE)
 MENTION_RE = re.compile(r"@[A-Za-z0-9_]{3,}")
-HASHTAG_RE = re.compile(r"#[\w\u0600-\u06FF]+")
+HASHTAG_RE = re.compile(r"#[\w\u0600-\u06FF]+", re.UNICODE)
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?\d[\d\s().-]{7,}\d)(?!\d)")
 
-# Keep these lists deliberately conservative. They are policy hooks, not a
-# claim that every occurrence is harmful; groups can turn each filter off.
+# Common Persian/Arabic profanity variants. The filter remains configurable
+# from group settings, but recognizes common keyboard/spelling variants.
 PROFANITY_TERMS = {
-    "کسکش", "کونی", "جنده", "حرومزاده", "fuck", "motherfucker", "bitch"
+    "کسکش", "کصکش", "کوسکش", "کونی", "کیر", "کص", "کس", "کوس",
+    "مادر کونی", "پدر کونی", "مادرکس", "پدرکس", "حرومزاده", "حرامزاده",
+    "جنده", "فاحشه", "بی ناموس", "بیناموس", "fuck", "fucking",
+    "motherfucker", "bitch", "asshole", "shit",
 }
+
 DRUG_TERMS = {
-    "کوکائین", "کراک", "شیشه", "هروئین", "تریاک", "ماریجوانا", "cocaine", "heroin", "meth"
+    "کوکائین", "کراک", "شیشه", "هروئین", "هرويين", "تریاک", "ترياک",
+    "ماریجوانا", "ماريجوانا", "حشیش", "حشيش", "cocaine", "heroin", "meth",
+    "marijuana", "weed",
 }
+
 NSFW_TERMS = {
-    "porn", "porno", "pornography", "سکس", "پورن"
+    "porn", "porno", "pornography", "سکس", "سکسى", "سکسی", "پورن", "پورنو",
+    "pornhub", "xxx",
 }
 
 
@@ -34,9 +42,20 @@ class ModerationEngine:
         return bool(PHONE_RE.search(text))
 
     @staticmethod
-    def _contains_term(text: str, terms: set[str]) -> bool:
-        normalized = " ".join(text.casefold().split())
-        return any(term.casefold() in normalized for term in terms)
+    def _normalize(text: str) -> str:
+        return (
+            " ".join(text.casefold().split())
+            .replace("ي", "ی")
+            .replace("ى", "ی")
+            .replace("ك", "ک")
+            .replace("ة", "ه")
+            .replace("ۀ", "ه")
+        )
+
+    @classmethod
+    def _contains_term(cls, text: str, terms: set[str]) -> bool:
+        normalized = cls._normalize(text)
+        return any(cls._normalize(term) in normalized for term in terms)
 
     def contains_profanity(self, text: str) -> bool:
         return self._contains_term(text, PROFANITY_TERMS)
