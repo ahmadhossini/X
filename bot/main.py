@@ -18,14 +18,17 @@ logger = logging.getLogger(__name__)
 
 SUPPORT_URL = "https://t.me/XAIMASTER_Official"
 DEFAULT_MINIAPP_URL = "https://xai-master-production-c83b.up.railway.app/miniapp/"
+
 AI_SYSTEM_PROMPT = """
 نام تو XAI MASTER است.
 تو دستیار هوش مصنوعی ربات تلگرام XAI MASTER هستی.
-مثل یک انسان طبیعی، دوستانه و دقیق با کاربر گفتگو کن.
+مثل یک انسان طبیعی، دوستانه، دقیق و کوتاه با کاربر گفتگو کن.
 اگر کاربر فارسی صحبت کرد، فارسی پاسخ بده.
 اگر انگلیسی صحبت کرد، انگلیسی پاسخ بده.
-برای سلام و گفتگوهای عادی هم پاسخ طبیعی بده.
-پاسخ‌ها روشن، مفید و تا حد امکان کوتاه باشند.
+برای سلام و گفتگوهای عادی پاسخ طبیعی بده.
+فقط وقتی کاربر مستقیماً پرسید «تو کی هستی؟»، «اسمت چیست؟» یا درباره هویتت سؤال کرد، خودت را XAI MASTER معرفی کن.
+در پاسخ‌های عادی نام خودت را تکرار نکن و خودت را دوباره معرفی نکن.
+هیچ عبارت مربوط به سهمیه، تعداد پیام باقی‌مانده، محدودیت روزانه یا تبلیغ را به پاسخ اضافه نکن؛ این موارد فقط توسط ربات مدیریت می‌شوند.
 """.strip()
 
 
@@ -60,9 +63,19 @@ def start_keyboard(bot: TeleBot, lang: str):
     bot_username = get_bot_username(bot)
     miniapp_url = getattr(settings, "miniapp_url", "") or DEFAULT_MINIAPP_URL
     if bot_username:
-        markup.add(types.InlineKeyboardButton(get_text(lang, "add_group"), url=f"https://t.me/{bot_username}?startgroup=true"))
+        markup.add(
+            types.InlineKeyboardButton(
+                get_text(lang, "add_group"),
+                url=f"https://t.me/{bot_username}?startgroup=true",
+            )
+        )
     if miniapp_url:
-        markup.add(types.InlineKeyboardButton(get_text(lang, "dashboard"), web_app=types.WebAppInfo(url=miniapp_url)))
+        markup.add(
+            types.InlineKeyboardButton(
+                get_text(lang, "dashboard"),
+                web_app=types.WebAppInfo(url=miniapp_url),
+            )
+        )
     markup.add(types.InlineKeyboardButton(get_text(lang, "support"), url=SUPPORT_URL))
     return markup
 
@@ -70,10 +83,32 @@ def start_keyboard(bot: TeleBot, lang: str):
 def send_start(bot: TeleBot, message: Message, lang: str):
     name = message.from_user.first_name or "User"
     try:
-        text = get_text(lang, "welcome", name=name) + "\n\n" + get_text(lang, "features") + "\n\n" + get_text(lang, "admin")
+        text = (
+            get_text(lang, "welcome", name=name)
+            + "\n\n"
+            + get_text(lang, "features")
+            + "\n\n"
+            + get_text(lang, "admin")
+        )
     except Exception:
-        text = f"<b>XAI MASTER V3</b>\n\nسلام {name}. من XAI MASTER هستم، دستیار هوشمند مدیریت و گفتگو در تلگرام.\n\nربات را به گروه اضافه کنید یا همین‌جا با من گفتگو کنید."
-    bot.send_message(message.chat.id, text, reply_markup=start_keyboard(bot, lang), parse_mode="HTML")
+        if lang == "en":
+            text = (
+                f"<b>XAI MASTER V3</b>\n\nHello {name}.\n\n"
+                "I am an intelligent Telegram group manager and AI assistant.\n\n"
+                "Add me to your group or start a private conversation."
+            )
+        else:
+            text = (
+                f"<b>XAI MASTER V3</b>\n\nسلام {name}.\n\n"
+                "من دستیار هوشمند مدیریت گروه و گفت‌وگو در تلگرام هستم.\n\n"
+                "می‌توانید من را به گروه اضافه کنید یا در پیام خصوصی با من گفتگو کنید."
+            )
+    bot.send_message(
+        message.chat.id,
+        text,
+        reply_markup=start_keyboard(bot, lang),
+        parse_mode="HTML",
+    )
 
 
 def _target_from_reply(message: Message) -> Optional[int]:
@@ -86,9 +121,22 @@ def _ai_prompt(text: str, bot_username: str) -> str:
     prompt = text.strip()
     if bot_username:
         prompt = prompt.replace(f"@{bot_username}", "").strip()
-    if prompt.lower().startswith("xai"):
+    lowered = prompt.lower()
+    if lowered.startswith("xai master"):
+        prompt = prompt[len("xai master") :].lstrip(" ,:،")
+    elif lowered.startswith("xai"):
         prompt = prompt[3:].lstrip(" ,:،")
     return prompt or "سلام"
+
+
+def _private_ai_button(bot: TeleBot):
+    username = get_bot_username(bot)
+    if not username:
+        return None
+    return types.InlineKeyboardButton(
+        "• ادامه در پیام خصوصی",
+        url=f"https://t.me/{username}",
+    )
 
 
 def build_bot():
@@ -110,12 +158,12 @@ def build_bot():
             return False
 
     def can_delete_messages(chat_id: int) -> bool:
-        """Check that XAI MASTER has Telegram permission to delete group messages."""
         try:
             me = bot.get_me()
             member = bot.get_chat_member(chat_id, me.id)
             return member.status == "creator" or (
-                member.status == "administrator" and bool(getattr(member, "can_delete_messages", False))
+                member.status == "administrator"
+                and bool(getattr(member, "can_delete_messages", False))
             )
         except Exception:
             logger.exception("could not check delete permission")
@@ -137,14 +185,21 @@ def build_bot():
                     message.chat.id,
                     "<b>XAI MASTER V3 PANEL</b>\n\nپنل مدیریت گروه شما آماده است.",
                     reply_markup=types.InlineKeyboardMarkup().add(
-                        types.InlineKeyboardButton("• باز کردن پنل مدیریت", web_app=types.WebAppInfo(url=url))
+                        types.InlineKeyboardButton(
+                            "• باز کردن پنل مدیریت",
+                            web_app=types.WebAppInfo(url=url),
+                        )
                     ),
                     parse_mode="HTML",
                 )
                 return
 
         if not get_user_language(message.from_user.id):
-            bot.send_message(message.chat.id, "• لطفاً زبان را انتخاب کنید\n• Please select your language:", reply_markup=choose_language_keyboard())
+            bot.send_message(
+                message.chat.id,
+                "• لطفاً زبان را انتخاب کنید\n• Please select your language:",
+                reply_markup=choose_language_keyboard(),
+            )
             return
         send_start(bot, message, lang)
 
@@ -154,7 +209,10 @@ def build_bot():
         try:
             send_start(bot, message, lang)
         except Exception:
-            bot.reply_to(message, "<b>XAI MASTER V3</b>\nCommands:\n/panel\n/warn\n/settings\n/autodelete\n/delete")
+            bot.reply_to(
+                message,
+                "<b>XAI MASTER V3</b>\nCommands:\n/panel\n/warn\n/settings\n/autodelete\n/delete",
+            )
 
     @bot.message_handler(commands=["panel", "پنل"])
     def panel_command(message: Message):
@@ -163,7 +221,10 @@ def build_bot():
             if message.chat.type in {"group", "supergroup"}:
                 bot_username = get_bot_username(bot)
                 if not bot_username:
-                    bot.send_message(message.chat.id, "نام کاربری ربات از Telegram دریافت نشد. ربات را دوباره راه‌اندازی کنید.")
+                    bot.send_message(
+                        message.chat.id,
+                        "نام کاربری ربات از Telegram دریافت نشد. ربات را دوباره راه‌اندازی کنید.",
+                    )
                     return
                 deep_link = f"https://t.me/{bot_username}?start=panel_{message.chat.id}"
                 bot.send_message(
@@ -180,7 +241,10 @@ def build_bot():
                 message.chat.id,
                 "<b>XAI MASTER V3 PANEL</b>",
                 reply_markup=types.InlineKeyboardMarkup().add(
-                    types.InlineKeyboardButton("• باز کردن پنل مدیریت", web_app=types.WebAppInfo(url=miniapp_url))
+                    types.InlineKeyboardButton(
+                        "• باز کردن پنل مدیریت",
+                        web_app=types.WebAppInfo(url=miniapp_url),
+                    )
                 ),
                 parse_mode="HTML",
             )
@@ -214,7 +278,13 @@ def build_bot():
         if not is_admin(message):
             bot.reply_to(message, get_text(lang, "only_admin"))
             return
-        bot.reply_to(message, "<b>XAI MASTER SETTINGS</b>\n\nبرای تنظیمات کامل گروه از /panel استفاده کنید.\n\nپاکسازی خودکار پیام‌ها: /autodelete 10m\nخاموش کردن: /autodelete off\nپاک کردن دستی: روی پیام ریپلای کنید و /delete بفرستید")
+        bot.reply_to(
+            message,
+            "<b>XAI MASTER SETTINGS</b>\n\nبرای تنظیمات کامل گروه از /panel استفاده کنید.\n\n"
+            "پاکسازی خودکار پیام‌ها: /autodelete 10m\n"
+            "خاموش کردن: /autodelete off\n"
+            "پاک کردن دستی: روی پیام ریپلای کنید و /delete بفرستید",
+        )
 
     @bot.message_handler(commands=["autodelete", "auto_delete", "پاکسازی_خودکار", "حذف_خودکار"])
     def autodelete_command(message: Message):
@@ -230,14 +300,20 @@ def build_bot():
             return
         parts = (message.text or "").split(maxsplit=1)
         if len(parts) < 2:
-            bot.reply_to(message, "فرمت: /autodelete 10m\nنمونه‌ها: 30s، 10m، 1h، 1d\nخاموش کردن: /autodelete off")
+            bot.reply_to(
+                message,
+                "فرمت: /autodelete 10m\nنمونه‌ها: 30s، 10m، 1h، 1d\nخاموش کردن: /autodelete off",
+            )
             return
         try:
             seconds = auto_delete.set_delay(message.chat.id, parts[1])
             if seconds == 0:
                 bot.reply_to(message, "حذف خودکار پیام‌ها خاموش شد.")
             else:
-                bot.reply_to(message, f"حذف خودکار فعال شد. پیام کاربران بعد از {parts[1].strip()} حذف می‌شود.")
+                bot.reply_to(
+                    message,
+                    f"حذف خودکار فعال شد. پیام کاربران بعد از {parts[1].strip()} حذف می‌شود.",
+                )
         except ValueError:
             bot.reply_to(message, "زمان نامعتبر است. از نمونه‌هایی مثل 30s، 10m، 1h یا 1d استفاده کنید.")
 
@@ -266,7 +342,10 @@ def build_bot():
         if deleted:
             bot.send_message(message.chat.id, f"{deleted} پیام حذف شد.")
         else:
-            bot.send_message(message.chat.id, "پیامی برای حذف پیدا نشد. برای حذف یک پیام مشخص، روی همان پیام ریپلای کنید و /delete بفرستید.")
+            bot.send_message(
+                message.chat.id,
+                "پیامی برای حذف پیدا نشد. برای حذف یک پیام مشخص، روی همان پیام ریپلای کنید و /delete بفرستید.",
+            )
 
     @bot.callback_query_handler(func=lambda call: call.data and call.data.startswith("lang:"))
     def language_callback(call):
@@ -321,7 +400,12 @@ def build_bot():
             bot.reply_to(message, "Reply to user message.")
             return
         try:
-            bot.restrict_chat_member(message.chat.id, user_id, can_send_messages=True, can_send_media_messages=True)
+            bot.restrict_chat_member(
+                message.chat.id,
+                user_id,
+                can_send_messages=True,
+                can_send_media_messages=True,
+            )
             bot.reply_to(message, "User unmuted.")
         except Exception:
             logger.exception("unmute error")
@@ -336,8 +420,17 @@ def build_bot():
             try:
                 bot.restrict_chat_member(message.chat.id, member.id, can_send_messages=False)
                 markup = types.InlineKeyboardMarkup()
-                markup.add(types.InlineKeyboardButton("• Verify", callback_data=f"verify:{message.chat.id}:{member.id}"))
-                bot.send_message(message.chat.id, "Please verify you are human.", reply_markup=markup)
+                markup.add(
+                    types.InlineKeyboardButton(
+                        "• Verify",
+                        callback_data=f"verify:{message.chat.id}:{member.id}",
+                    )
+                )
+                bot.send_message(
+                    message.chat.id,
+                    "Please verify you are human.",
+                    reply_markup=markup,
+                )
             except Exception:
                 logger.exception("verify error")
 
@@ -350,7 +443,12 @@ def build_bot():
             if call.from_user.id != user_id:
                 bot.answer_callback_query(call.id, "Not for you", show_alert=True)
                 return
-            bot.restrict_chat_member(chat_id, user_id, can_send_messages=True, can_send_media_messages=True)
+            bot.restrict_chat_member(
+                chat_id,
+                user_id,
+                can_send_messages=True,
+                can_send_media_messages=True,
+            )
             bot.answer_callback_query(call.id, "Verified")
             bot.edit_message_text("Verified", chat_id, call.message.message_id)
         except Exception:
@@ -363,13 +461,24 @@ def build_bot():
         if not text or message.from_user.is_bot:
             return
 
-        if message.chat.type in {"group", "supergroup"} and not is_admin(message):
-            auto_delete.schedule(message)
-
+        is_group = message.chat.type in {"group", "supergroup"}
         is_private = message.chat.type == "private"
+
+        # Text messages must pass the same moderation pipeline as media.
+        # Previously only media reached GroupModeration, which is why links,
+        # hashtags, profanity and other filters appeared to be inactive.
+        if is_group and not is_admin(message):
+            auto_delete.schedule(message)
+            try:
+                if moderation.handle(message):
+                    return
+            except Exception:
+                logger.exception("text moderation error")
+
         bot_username = get_bot_username(bot)
 
-        if not is_private:
+        # In groups the AI only responds when the bot is explicitly called.
+        if is_group:
             lowered = text.lower()
             mentioned = bool(bot_username and f"@{bot_username.lower()}" in lowered)
             called = lowered.startswith("xai") or lowered.startswith("xai master")
@@ -377,7 +486,7 @@ def build_bot():
                 return
 
         try:
-            allowed, remaining = check_ai_limit(
+            allowed, _remaining = check_ai_limit(
                 user_id=message.from_user.id,
                 chat_id=message.chat.id,
                 private=is_private,
@@ -389,11 +498,20 @@ def build_bot():
 
         if not allowed:
             if is_private:
-                bot.reply_to(message, "سهمیه روزانه ۲۰ پیام خصوصی شما تمام شده است. فردا دوباره می‌توانید استفاده کنید.")
-            else:
                 bot.reply_to(
                     message,
-                    "سهمیه روزانه ۵ پیام AI شما در این گروه تمام شد.\n\nبرای ادامه گفتگو، وارد پیام خصوصی XAI MASTER شوید و از همان‌جا ادامه دهید.",
+                    "سهمیه روزانه ۲۰ درخواست شما تمام شده است. فردا دوباره می‌توانید از XAI MASTER استفاده کنید.",
+                )
+            else:
+                markup = types.InlineKeyboardMarkup()
+                button = _private_ai_button(bot)
+                if button:
+                    markup.add(button)
+                bot.reply_to(
+                    message,
+                    "سهمیه روزانه ۵ درخواست شما در این گروه تمام شده است.\n\n"
+                    "برای ادامه گفتگو، به پیام خصوصی XAI MASTER بروید.",
+                    reply_markup=markup,
                 )
             return
 
@@ -402,13 +520,20 @@ def build_bot():
             reply = ai.ask(prompt, system=AI_SYSTEM_PROMPT)
             if not reply:
                 raise RuntimeError("empty AI response")
-            suffix = f"\n\nپیام باقی‌مانده امروز: {remaining}" if remaining is not None else ""
-            bot.reply_to(message, f"{reply}{suffix}")
+            # Always reply to the user's message. Do not expose the remaining
+            # quota after every successful request; only show the message when
+            # the quota has actually been exhausted.
+            bot.reply_to(message, reply)
         except Exception:
             logger.exception("AI reply error")
-            bot.reply_to(message, "در حال حاضر نتوانستم پاسخ بدهم. لطفاً چند لحظه بعد دوباره تلاش کنید.")
+            bot.reply_to(
+                message,
+                "در حال حاضر نتوانستم پاسخ بدهم. لطفاً چند لحظه بعد دوباره تلاش کنید.",
+            )
 
-    @bot.message_handler(content_types=["photo", "video", "document", "animation", "audio", "voice", "sticker"])
+    @bot.message_handler(
+        content_types=["photo", "video", "document", "animation", "audio", "voice", "sticker"]
+    )
     def moderation_handler(message: Message):
         if message.chat.type in {"group", "supergroup"}:
             if not is_admin(message):
