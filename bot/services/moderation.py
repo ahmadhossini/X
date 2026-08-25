@@ -33,14 +33,17 @@ class GroupModeration:
             return False
 
     def handle(self, message: Message) -> bool:
+        """Apply enabled group moderation rules to a user message.
+
+        This method is intentionally called for both text and media messages by
+        the bot dispatcher. Returning True means the message was handled by a
+        moderation rule and should not continue into the AI pipeline.
+        """
         if not message.from_user or self.is_admin(message):
             return False
 
         cfg = store.get(message.chat.id)
         text = message.text or message.caption or ""
-
-        if not text and message.content_type not in {"text", "photo", "video", "animation", "audio", "voice", "document", "sticker"}:
-            return False
 
         if cfg.forward_lock and getattr(message, "forward_date", None):
             if self._delete(message):
