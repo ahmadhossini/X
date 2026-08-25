@@ -13,9 +13,9 @@ class GroupSettings:
     anti_flood: bool = True
     anti_link: bool = True
     media_lock: bool = False
-    forward_lock: bool = False
-    mention_lock: bool = False
-    hashtag_lock: bool = False
+    forward_lock: bool = True
+    mention_lock: bool = True
+    hashtag_lock: bool = True
     phone_lock: bool = False
     profanity_filter: bool = True
     drug_filter: bool = True
