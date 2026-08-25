@@ -9,6 +9,7 @@ from threading import Lock
 
 @dataclass
 class GroupSettings:
+    settings_version: int = 2
     anti_spam: bool = True
     anti_flood: bool = True
     anti_link: bool = True
@@ -57,10 +58,27 @@ class GroupSettingsStore:
         temp_file.replace(self.path)
 
     def get(self, chat_id: int) -> GroupSettings:
+        chat_key = str(chat_id)
         with self._lock:
-            raw = self._load().get(str(chat_id), {})
-        values = asdict(GroupSettings())
-        values.update(raw)
+            data = self._load()
+            raw = data.get(chat_key, {})
+
+            values = asdict(GroupSettings())
+            if isinstance(raw, dict):
+                values.update(raw)
+
+            # Migrate old groups once. In V1 these three protections were
+            # disabled by default, so existing groups kept false in storage.
+            # Version 2 makes the core moderation protections active unless
+            # the administrator explicitly turns them off afterwards.
+            if not isinstance(raw, dict) or int(raw.get("settings_version", 0) or 0) < 2:
+                values["settings_version"] = 2
+                values["forward_lock"] = True
+                values["mention_lock"] = True
+                values["hashtag_lock"] = True
+                data[chat_key] = values
+                self._save(data)
+
         if not isinstance(values.get("force_join_channels"), list):
             values["force_join_channels"] = []
         values["force_join_count"] = int(values.get("force_join_count", len(values["force_join_channels"])))
