@@ -11,6 +11,7 @@ DATA_FILE = Path(os.getenv("USER_LANGUAGE_FILE", str(PROJECT_ROOT / "data" / "us
 _LOCK = Lock()
 _CACHE: dict[str, str] | None = None
 _CHAT_LANG: dict[int, str] = {}
+_CALLBACK_LANG: dict[str, str] = {}
 _PATCHED = False
 
 
@@ -68,16 +69,14 @@ def _translate(text: str, language: str) -> str:
         return text
     fa, en = _load_locales()
     source, target = (fa, en) if language == "en" else (en, fa)
-    # Translate exact localized catalog values in either direction.
     for key, value in source.items():
         if isinstance(value, str) and text == value:
             return target.get(key, text)
 
-    # Translate remaining legacy hard-coded messages, including dynamic values.
     exact = {
         "Reply to a user message first.": ("لطفاً روی پیام کاربر ریپلای کنید و دستور را دوباره بفرستید.", "Reply to a user message first."),
         "Reply to user message.": ("لطفاً روی پیام کاربر ریپلای کنید.", "Reply to user message."),
-        "Reply to user message.": ("لطفاً روی پیام کاربر ریپلای کنید.", "Reply to user message."),
+        "Warning added. Total warnings: ": ("هشدار ثبت شد. تعداد هشدارها: ", "Warning added. Total warnings: "),
         "Warning failed.": ("ثبت هشدار انجام نشد.", "Warning failed."),
         "Ban failed.": ("نتوانستم کاربر را مسدود کنم.", "Ban failed."),
         "Unban failed.": ("نتوانستم مسدودی کاربر را بردارم.", "Unban failed."),
@@ -90,6 +89,8 @@ def _translate(text: str, language: str) -> str:
         "Verified": ("تأیید شد.", "Verified"),
         "Verification failed": ("تأیید انجام نشد.", "Verification failed"),
         "Invalid language": ("زبان انتخاب‌شده معتبر نیست.", "Invalid language"),
+        "• ادامه در پیام خصوصی": ("• ادامه در پیام خصوصی", "• Continue in Private Chat"),
+        "• باز کردن پنل مدیریت": ("• باز کردن پنل مدیریت", "• Open Management Panel"),
     }
     if text in exact:
         fa_text, en_text = exact[text]
@@ -112,13 +113,26 @@ def _translate(text: str, language: str) -> str:
         (r"^سهمیه روزانه ۲۰ درخواست شما تمام شده است\. فردا دوباره می‌توانید از XAI MASTER استفاده کنید\.$", lambda m: (text, "Your daily limit of 20 requests has been reached. You can use XAI MASTER again tomorrow.")),
         (r"^سهمیه روزانه ۵ درخواست شما در این گروه تمام شده است\.\\n\\nبرای ادامه گفتگو، به پیام خصوصی XAI MASTER بروید\.$", lambda m: (text, "Your daily limit of 5 requests in this group has been reached.\\n\\nContinue the conversation in XAI MASTER's private chat.")),
         (r"^برای تنظیمات کامل گروه از /panel استفاده کنید\.$", lambda m: (text, "Use /panel for the complete group settings.")),
-        (r"^تنظیمات کامل گروه از /panel استفاده کنید\.$", lambda m: (text, "Use /panel for the complete group settings.")),
     ]
     for pattern, builder in patterns:
-        if re.match(pattern, text, flags=re.DOTALL):
-            fa_text, en_text = builder(re.match(pattern, text, flags=re.DOTALL))
+        match = re.match(pattern, text, flags=re.DOTALL)
+        if match:
+            fa_text, en_text = builder(match)
             return en_text if language == "en" else fa_text
     return text
+
+
+def _localize_markup(markup, language: str):
+    if markup is None:
+        return markup
+    for row_name in ("keyboard", "inline_keyboard"):
+        rows = getattr(markup, row_name, None)
+        if rows:
+            for row in rows:
+                for button in row:
+                    if getattr(button, "text", None):
+                        button.text = _translate(button.text, language)
+    return markup
 
 
 def _patch_telebot() -> None:
@@ -147,6 +161,7 @@ def _patch_telebot() -> None:
             lang = get_user_language(callback.from_user.id)
             if lang:
                 _CHAT_LANG[callback.message.chat.id] = lang
+                _CALLBACK_LANG[str(callback.id)] = lang
 
     def process(self, updates):
         for update in updates:
@@ -159,18 +174,21 @@ def _patch_telebot() -> None:
             lang = get_user_language(user.id) or _CHAT_LANG.get(message.chat.id, "fa")
             _CHAT_LANG[message.chat.id] = lang
             text = _translate(text, lang)
+            if "reply_markup" in kwargs:
+                kwargs["reply_markup"] = _localize_markup(kwargs["reply_markup"], lang)
         return original_reply(self, message, text, *args, **kwargs)
 
     def send(self, chat_id, text, *args, **kwargs):
         lang = _CHAT_LANG.get(chat_id)
         if lang:
             text = _translate(text, lang)
+            if "reply_markup" in kwargs:
+                kwargs["reply_markup"] = _localize_markup(kwargs["reply_markup"], lang)
         return original_send(self, chat_id, text, *args, **kwargs)
 
     def answer(self, callback_query_id, text=None, *args, **kwargs):
         if text:
-            lang = _CHAT_LANG.get(next(iter(_CHAT_LANG), None), "fa")
-            text = _translate(text, lang)
+            text = _translate(text, _CALLBACK_LANG.get(str(callback_query_id), "fa"))
         return original_answer(self, callback_query_id, text, *args, **kwargs)
 
     def edit(self, text, chat_id, message_id, *args, **kwargs):
