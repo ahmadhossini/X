@@ -6,7 +6,7 @@ const state = { lang: "fa", user: null, groups: [], currentGroup: null, page: "h
 
 const I18N = {
   fa: {
-    home: "خانه", help: "راهنمایی", welcome_back: "خوش آمدید", your_groups: "گروه‌های شما",
+    home: "خانه", help: "راهنما", welcome_back: "خوش آمدید", your_groups: "گروه‌های شما",
     managed_groups: "گروه‌هایی که XAI MASTER در آن‌ها به شما دسترسی مدیریتی دارد", no_groups: "گروهی پیدا نشد",
     no_groups_desc: "ربات را به یک گروه اضافه کنید و دسترسی مدیریتی لازم را بدهید.", group_settings: "تنظیمات گروه",
     group_settings_desc: "امنیت و رفتار ربات را از یک صفحه کنترل کنید.", force_join: "عضویت اجباری",
@@ -20,13 +20,16 @@ const I18N = {
     help_delete: "مدیران می‌توانند از /delete یا /حذف برای حذف پیام‌ها و از /autodelete برای تنظیم حذف خودکار استفاده کنند.",
     help_permissions: "برای عملکرد کامل، XAI MASTER باید دسترسی‌های مدیریتی موردنیاز، مخصوصاً حذف پیام‌ها را داشته باشد.",
     online: "API آنلاین", members: "عضو", active: "فعال", inactive: "غیرفعال", saved: "تغییرات ذخیره شد",
-    loading: "در حال دریافت...", admin_required: "دسترسی مدیر لازم است", force_join_saved: "تنظیمات عضویت اجباری ذخیره شد."
+    loading: "در حال دریافت...", admin_required: "دسترسی مدیر لازم است", force_join_saved: "تنظیمات عضویت اجباری ذخیره شد.",
+    group: "گروه", telegram_group: "گروه تلگرام", back: "بازگشت", start_work: "شروع کار", group_security: "امنیت گروه",
+    ai: "هوش مصنوعی", delete_messages: "حذف پیام", tip: "نکته", api_error: "خطای ارتباط با سرور",
+    miniapp_only: "Mini App باید از داخل تلگرام باز شود.", connection_error: "خطای اتصال"
   },
   en: {
     home: "Home", help: "Help", welcome_back: "Welcome back", your_groups: "Your groups",
     managed_groups: "Groups where XAI MASTER has access and you are an administrator", no_groups: "No groups found",
     no_groups_desc: "Add the bot to a group and grant the required administrator permissions.", group_settings: "Group settings",
-    group_settings_desc: "Control security and bot behavior from one place.", force_join: "Force join",
+    group_settings_desc: "Control security and bot behaviour from one place.", force_join: "Force join",
     force_join_desc: "Users must join the selected channels before participating.", required_channels_count: "Required channels",
     channel_links: "Channel links", save: "Save changes", security: "Security",
     security_desc: "Control the group's security features.", help_title: "XAI MASTER Help",
@@ -37,19 +40,33 @@ const I18N = {
     help_delete: "Admins can use /delete or /حذف to remove messages and /autodelete to configure automatic deletion.",
     help_permissions: "For full functionality, XAI MASTER needs the required administrator permissions, especially permission to delete messages.",
     online: "API online", members: "members", active: "Enabled", inactive: "Disabled", saved: "Changes saved",
-    loading: "Loading...", admin_required: "Administrator access required", force_join_saved: "Force-join settings saved."
+    loading: "Loading...", admin_required: "Administrator access required", force_join_saved: "Force-join settings saved.",
+    group: "Group", telegram_group: "Telegram group", back: "Back", start_work: "Getting started", group_security: "Group security",
+    ai: "AI assistant", delete_messages: "Message deletion", tip: "Tip", api_error: "Server communication error",
+    miniapp_only: "The Mini App must be opened from Telegram.", connection_error: "Connection error"
   }
 };
 
-const FEATURES = [
-  ["anti_spam", "Anti-Spam"], ["anti_flood", "Anti-Flood"], ["anti_link", "Anti-Link"], ["media_lock", "Media Lock"],
-  ["forward_lock", "Forward Lock"], ["mention_lock", "Mention Lock"], ["hashtag_lock", "Hashtag Lock"], ["phone_lock", "Phone Lock"],
-  ["profanity_filter", "Profanity Filter"], ["drug_filter", "Drug Filter"], ["nsfw_filter", "NSFW Filter"], ["welcome", "Welcome"],
-  ["goodbye", "Goodbye"], ["clean_deleted_accounts", "Clean deleted accounts"], ["clean_bots", "Clean bots"], ["work_hours", "Work hours"],
-  ["global_mute", "Global mute"], ["auto_pin", "Auto pin"], ["auto_answer", "Auto answer"], ["ai_chat", "AI chat"], ["statistics", "Statistics"]
-];
+const FEATURE_LABELS = {
+  fa: {
+    anti_spam: "ضد اسپم", anti_flood: "ضد فلود", anti_link: "ضد لینک", media_lock: "قفل رسانه", forward_lock: "قفل فوروارد",
+    mention_lock: "قفل منشن", hashtag_lock: "قفل هشتگ", phone_lock: "قفل شماره تلفن", profanity_filter: "فیلتر کلمات نامناسب",
+    drug_filter: "فیلتر محتوای مواد مخدر", nsfw_filter: "فیلتر محتوای نامناسب", welcome: "خوش‌آمدگویی", goodbye: "خداحافظی",
+    clean_deleted_accounts: "پاکسازی حساب‌های حذف‌شده", clean_bots: "پاکسازی ربات‌ها", work_hours: "ساعات کاری",
+    global_mute: "محدودیت عمومی", auto_pin: "پین خودکار", auto_answer: "پاسخ خودکار", ai_chat: "گفت‌وگوی هوش مصنوعی", statistics: "آمار"
+  },
+  en: {
+    anti_spam: "Anti-Spam", anti_flood: "Anti-Flood", anti_link: "Anti-Link", media_lock: "Media Lock", forward_lock: "Forward Lock",
+    mention_lock: "Mention Lock", hashtag_lock: "Hashtag Lock", phone_lock: "Phone Lock", profanity_filter: "Profanity Filter",
+    drug_filter: "Drug Content Filter", nsfw_filter: "NSFW Filter", welcome: "Welcome", goodbye: "Goodbye",
+    clean_deleted_accounts: "Clean deleted accounts", clean_bots: "Clean bots", work_hours: "Work hours",
+    global_mute: "Global mute", auto_pin: "Auto pin", auto_answer: "Auto answer", ai_chat: "AI chat", statistics: "Statistics"
+  }
+};
 
+const FEATURES = Object.keys(FEATURE_LABELS.fa);
 function t(key) { return I18N[state.lang]?.[key] || I18N.fa[key] || key; }
+function featureLabel(key) { return FEATURE_LABELS[state.lang]?.[key] || FEATURE_LABELS.en[key] || key; }
 function headers() { return { "Content-Type": "application/json", "X-Telegram-Init-Data": tg?.initData || "" }; }
 function setText(id, value) { const el = document.getElementById(id); if (el) el.textContent = value; }
 function apiUrl(path) { return `${API}${path}`; }
@@ -69,6 +86,12 @@ function applyLanguage() {
   document.querySelectorAll("[data-i18n]").forEach((el) => { const key = el.dataset.i18n; if (I18N[state.lang]?.[key]) el.textContent = I18N[state.lang][key]; });
   setText("api-label", t("online"));
   setText("page-subtitle", state.page === "home" ? t("home") : state.page === "help" ? t("help") : t("group_settings"));
+  const helpTitles = ["start_work", "group_security", "ai", "delete_messages", "tip"];
+  document.querySelectorAll(".help-card h2").forEach((el, i) => { if (helpTitles[i]) el.textContent = t(helpTitles[i]); });
+  const back = document.getElementById("back-home"); if (back) back.setAttribute("aria-label", t("back"));
+  const force = document.getElementById("force-join-switch"); if (force) force.setAttribute("aria-label", t("force_join"));
+  const photo = document.getElementById("user-photo"); if (photo) photo.alt = t("home");
+  const groupPhoto = document.getElementById("group-photo"); if (groupPhoto) groupPhoto.alt = t("group");
 }
 
 function renderUser() {
@@ -88,9 +111,9 @@ function renderGroups() {
   for (const group of state.groups) {
     const card = document.createElement("button"); card.type = "button"; card.className = "group-card";
     const fallback = (group.title || "G").charAt(0).toUpperCase();
-    const avatar = group.photo_url ? `<img class="avatar avatar-lg" src="${group.photo_url}" alt="group">` : `<div class="avatar avatar-lg avatar-fallback">${fallback}</div>`;
+    const avatar = group.photo_url ? `<img class="avatar avatar-lg" src="${group.photo_url}" alt="${t("group")}">` : `<div class="avatar avatar-lg avatar-fallback">${fallback}</div>`;
     card.innerHTML = `${avatar}<div class="group-info"><h3></h3><div class="group-meta"><span class="member-value"></span><span>•</span><span>${state.lang === "fa" ? "مدیر" : "Admin"}</span></div></div><span class="group-arrow">‹</span>`;
-    card.querySelector("h3").textContent = group.title || "Group";
+    card.querySelector("h3").textContent = group.title || t("group");
     card.querySelector(".member-value").textContent = `${group.member_count || 0} ${t("members")}`;
     card.addEventListener("click", () => openGroup(group.id));
     list.appendChild(card);
@@ -101,20 +124,21 @@ function setSwitch(button, enabled) { button.classList.toggle("on", Boolean(enab
 
 function renderSettings(settings) {
   const list = document.getElementById("settings-list"); list.innerHTML = "";
-  for (const [feature, label] of FEATURES) {
+  for (const feature of FEATURES) {
     const enabled = Boolean(settings[feature]);
     const row = document.createElement("div"); row.className = "setting";
     const info = document.createElement("div");
     info.innerHTML = `<div class="setting-name"></div><div class="setting-state"></div>`;
-    info.querySelector(".setting-name").textContent = label;
+    info.querySelector(".setting-name").textContent = featureLabel(feature);
     info.querySelector(".setting-state").textContent = enabled ? t("active") : t("inactive");
     const button = document.createElement("button"); button.type = "button"; button.className = "switch"; setSwitch(button, enabled);
+    button.setAttribute("aria-label", featureLabel(feature));
     button.addEventListener("click", async () => {
       button.disabled = true;
       try {
         const data = await request(`/api/groups/${encodeURIComponent(state.currentGroup.id)}/settings`, { method: "POST", body: JSON.stringify({ feature, enabled: !enabled }) });
         renderSettings(data.settings); showNotice(t("saved"));
-      } catch (error) { showError(error.message); button.disabled = false; }
+      } catch (error) { showError(error.message || t("api_error")); button.disabled = false; }
     });
     row.append(info, button); list.appendChild(row);
   }
@@ -132,8 +156,8 @@ async function loadGroupPhoto(group) {
 }
 
 function renderGroup(group, settings) {
-  setText("group-name", group.title || "Group");
-  setText("group-username", group.username ? `@${group.username}` : (state.lang === "fa" ? "گروه تلگرام" : "Telegram group"));
+  setText("group-name", group.title || t("group"));
+  setText("group-username", group.username ? `@${group.username}` : t("telegram_group"));
   setText("group-members", `${group.member_count || 0} ${t("members")}`);
   loadGroupPhoto(group);
   setSwitch(document.getElementById("force-join-switch"), settings.force_join);
@@ -147,8 +171,8 @@ async function openGroup(chatId) {
     const data = await request(`/api/groups/${encodeURIComponent(chatId)}`);
     state.currentGroup = data.group; state.page = "settings";
     showPage("settings"); renderGroup(data.group, data.settings);
-    if (tg?.BackButton) { tg.BackButton.show(); }
-  } catch (error) { showError(error.message); }
+    if (tg?.BackButton) tg.BackButton.show();
+  } catch (error) { showError(error.message || t("api_error")); }
 }
 
 function showPage(page) {
@@ -162,12 +186,12 @@ function showPage(page) {
 
 async function loadHome() {
   const [me, groups] = await Promise.all([request("/api/me"), request("/api/me/groups")]);
-  state.user = me; state.lang = me.language || "fa"; state.groups = groups.groups || [];
+  state.user = me; state.lang = me.language === "en" ? "en" : "fa"; state.groups = groups.groups || [];
   renderUser(); renderGroups(); applyLanguage();
 }
 
 async function init() {
-  if (!tg?.initData) { showError("Mini App باید از داخل تلگرام باز شود."); return; }
+  if (!tg?.initData) { showError(t("miniapp_only")); return; }
   tg.ready(); tg.expand();
   document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => showPage(button.dataset.page)));
   document.getElementById("back-home").addEventListener("click", () => showPage("home"));
@@ -178,7 +202,7 @@ async function init() {
     try {
       const data = await request(`/api/groups/${encodeURIComponent(state.currentGroup.id)}/settings`, { method: "POST", body: JSON.stringify({ feature: "force_join", enabled }) });
       setSwitch(document.getElementById("force-join-switch"), data.settings.force_join); showNotice(t("saved"));
-    } catch (error) { showError(error.message); }
+    } catch (error) { showError(error.message || t("api_error")); }
   });
 
   document.getElementById("save-force-join").addEventListener("click", async () => {
@@ -187,14 +211,14 @@ async function init() {
     try {
       const data = await request(`/api/groups/${encodeURIComponent(state.currentGroup.id)}/config`, { method: "POST", body: JSON.stringify({ force_join_count: count, force_join_channels: channels }) });
       renderGroup(state.currentGroup, data.settings); showNotice(t("force_join_saved"));
-    } catch (error) { showError(error.message); }
+    } catch (error) { showError(error.message || t("api_error")); }
   });
 
   try {
     await loadHome();
     const chatId = params.get("chat_id");
     if (chatId) await openGroup(chatId);
-  } catch (error) { showError(error.message || "Connection error"); }
+  } catch (error) { showError(error.message || t("connection_error")); }
 }
 
 init();
