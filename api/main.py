@@ -17,14 +17,16 @@ from bot.services.user_language import get_user_language
 from core.config import settings
 from database.session import init_db
 from market.service import crypto_market
+from code_agent.routes import router as code_agent_router
 
-app = FastAPI(title="XAI MASTER API", version="3.2.0")
+app = FastAPI(title="XAI MASTER API", version="3.3.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["*"])
 BASE_DIR = Path(__file__).resolve().parent.parent
 DASHBOARD_DIR = BASE_DIR / "dashboard"
 if DASHBOARD_DIR.exists():
     app.mount("/dashboard", StaticFiles(directory=str(DASHBOARD_DIR), html=True), name="dashboard")
     app.mount("/miniapp", StaticFiles(directory=str(DASHBOARD_DIR), html=True), name="miniapp")
+app.include_router(code_agent_router)
 
 @app.on_event("startup")
 def startup() -> None:
@@ -41,7 +43,7 @@ def root() -> dict[str, str]:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "version": "3.2.0"}
+    return {"status": "ok", "version": "3.3.0", "code_agent": "embedded"}
 
 @app.get("/api/market/crypto")
 async def crypto_prices() -> list[dict]:
