@@ -18,6 +18,10 @@ def _int_set(value: str | None) -> set[int]:
 class Settings:
     bot_token: str = os.getenv("BOT_TOKEN", "")
     gemini_api_key: str = os.getenv("GEMINI_API_KEY", "")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    github_app_id: str = os.getenv("GITHUB_APP_ID", "")
+    github_app_private_key: str = os.getenv("GITHUB_APP_PRIVATE_KEY", "")
+    github_webhook_secret: str = os.getenv("GITHUB_WEBHOOK_SECRET", "")
     admin_ids: set[int] = field(default_factory=set)
     sponsor_channel: str = os.getenv("SPONSOR_CHANNEL", "")
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./xai_master.db")
