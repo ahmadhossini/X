@@ -6,3 +6,4 @@ pydantic-settings>=2.7,<3
 httpx>=0.28,<1
 google-genai>=1.0,<2
 python-dotenv>=1.0,<2
+cryptography>=43,<50
