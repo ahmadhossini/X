@@ -1,0 +1,1 @@
+window.XAI_ROUTER={go(route){window.XAI_STATE.route=route;document.querySelectorAll('.nav-item').forEach(b=>b.classList.toggle('active',b.dataset.route===route));window.dispatchEvent(new CustomEvent('xai:route',{detail:{route}}))}};
