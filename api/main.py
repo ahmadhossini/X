@@ -18,6 +18,7 @@ from core.config import settings
 from database.session import init_db
 from market.service import crypto_market
 from code_agent.routes import router as code_agent_router
+from api.github_webhook import router as github_webhook_router
 
 app = FastAPI(title="XAI MASTER API", version="3.3.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=False, allow_methods=["GET", "POST", "OPTIONS"], allow_headers=["*"])
@@ -27,6 +28,7 @@ if DASHBOARD_DIR.exists():
     app.mount("/dashboard", StaticFiles(directory=str(DASHBOARD_DIR), html=True), name="dashboard")
     app.mount("/miniapp", StaticFiles(directory=str(DASHBOARD_DIR), html=True), name="miniapp")
 app.include_router(code_agent_router)
+app.include_router(github_webhook_router)
 
 @app.on_event("startup")
 def startup() -> None:
