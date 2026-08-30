@@ -1,0 +1,1 @@
+window.XAI_TELEGRAM={webApp:null,init(){const w=window.Telegram?.WebApp;if(!w)return null;this.webApp=w;w.ready();w.expand();return w},user(){return this.webApp?.initDataUnsafe?.user||null}};
