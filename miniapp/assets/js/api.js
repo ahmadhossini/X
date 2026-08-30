@@ -1,0 +1,1 @@
+window.XAI_API={base:'/api',async request(path,options={}){const r=await fetch(this.base+path,{headers:{'Content-Type':'application/json',...(options.headers||{})},...options});if(!r.ok)throw new Error(`API ${r.status}`);return r.json()}};
