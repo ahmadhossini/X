@@ -1,0 +1,1 @@
+window.XAI_STATE={route:'home',user:null,groups:[],repositories:[],loading:false};
