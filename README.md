@@ -1,18 +1,18 @@
-# XAI MASTER
+# XAI Code Agent
 
-AI-powered Telegram group and channel management platform with market charts for currencies, gold, and cryptocurrencies.
+Telegram-first AI coding agent for working with GitHub repositories.
 
-## Project structure
+## Architecture
 
-- `bot/` — Telegram bot layer
-- `core/` — application configuration and shared services
-- `database/` — database models and persistence
-- `ai/` — AI engine and moderation
-- `market/` — market data and historical prices
-- `api/` — backend API
-- `dashboard/` — web dashboard
-- `miniapp/` — Telegram Mini App
+- `bot/` — Telegram interface and bot lifecycle
+- `code_agent/` — GitHub integration, AI analysis, and agent API
+- `api/` — HTTP API and GitHub webhook entrypoint
+- `core/` — shared configuration
+- `database/` — persistence models and database session
 - `tests/` — automated tests
-- `scripts/` — development and deployment scripts
 
-Implementation will be added incrementally after the architecture is finalized.
+## Core flow
+
+Telegram → Code Agent → GitHub → repository analysis/changes → tests/CI → report or Pull Request
+
+The repository intentionally contains only the foundation for the coding-agent product. Legacy group management, market data, dashboard, and Mini App code have been removed.
