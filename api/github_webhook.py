@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import os
+import json
 
 from fastapi import APIRouter, Header, HTTPException, Request
+from sqlalchemy import select
+
+from core.config import settings
+from database.models import GitHubInstallation
+from database.session import SessionLocal
 
 router = APIRouter(prefix="/api/github", tags=["github"])
 
@@ -16,7 +21,7 @@ async def github_webhook(
     x_github_event: str | None = Header(default=None),
 ) -> dict[str, str]:
     body = await request.body()
-    secret = os.getenv("GITHUB_WEBHOOK_SECRET", "").encode("utf-8")
+    secret = settings.github_webhook_secret.encode("utf-8")
 
     if not secret:
         raise HTTPException(status_code=500, detail="GITHUB_WEBHOOK_SECRET is not configured")
@@ -27,4 +32,17 @@ async def github_webhook(
     if not hmac.compare_digest(expected, x_hub_signature_256):
         raise HTTPException(status_code=401, detail="Invalid GitHub signature")
 
-    return {"status": "ok", "event": x_github_event or "unknown"}
+    event = x_github_event or "unknown"
+    if event == "installation":
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise HTTPException(status_code=400, detail="Invalid JSON payload")
+        installation_id = (payload.get("installation") or {}).get("id")
+        action = payload.get("action")
+        if installation_id and action in {"deleted", "suspend"}:
+            with SessionLocal() as db:
+                db.query(GitHubInstallation).filter(GitHubInstallation.installation_id == installation_id).update({"active": False})
+                db.commit()
+
+    return {"status": "ok", "event": event}
