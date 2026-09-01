@@ -4,7 +4,6 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#ffffff">
-  <meta name="color-scheme" content="light">
   <title>XAI MASTER</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -15,39 +14,21 @@
       <div class="brand-copy"><div class="brand-name">XAI MASTER</div><div class="brand-subtitle" id="page-subtitle">خانه</div></div>
       <div class="api-pill"><span class="status-dot"></span><span id="api-label">API آنلاین</span></div>
     </header>
-
     <main id="app" class="page-wrap">
       <section id="page-home" class="page active">
         <button id="profile-open" class="profile-hero app-card" type="button">
           <div class="profile-avatar-wrap"><img id="user-photo" class="avatar avatar-xl" alt="profile" hidden><div id="user-avatar-fallback" class="avatar avatar-xl avatar-fallback">X</div><span class="online-badge"></span></div>
           <div class="profile-copy"><span class="eyebrow" data-i18n="welcome_back">خوش آمدید</span><h1 id="user-name">در حال دریافت...</h1><p id="user-username">@...</p></div><span class="profile-chevron">‹</span>
         </button>
-        <div class="section-title-row"><div><h2 data-i18n="your_groups">گروه‌های شما</h2><p data-i18n="managed_groups">گروه‌هایی که XAI MASTER در آن‌ها به شما دسترسی مدیریتی دارد</p></div><span id="group-count" class="count-badge">0</span></div>
-        <div id="groups-list" class="groups-list"></div>
-        <div id="groups-empty" class="empty-state app-card" hidden><div class="empty-icon">+</div><h3 data-i18n="no_groups">گروهی پیدا نشد</h3><p data-i18n="no_groups_desc">ربات را به یک گروه اضافه کنید و دسترسی مدیریتی لازم را بدهید.</p></div>
       </section>
-
-      <section id="page-settings" class="page" hidden>
-        <div class="settings-topbar"><button id="back-home" class="back-button" type="button" aria-label="back">‹</button><span data-i18n="group_settings">تنظیمات گروه</span></div>
-        <div class="group-hero app-card"><div class="group-heading"><img id="group-photo" class="avatar avatar-lg" alt="group" hidden><div id="group-avatar-fallback" class="avatar avatar-lg avatar-fallback">G</div><div class="group-copy"><h1 id="group-name">گروه</h1><p id="group-username">گروه تلگرام</p><span id="group-members" class="members-label">0 عضو</span></div></div></div>
-        <div class="section-title-row compact"><div><h2 data-i18n="group_settings">تنظیمات گروه</h2><p data-i18n="group_settings_desc">امنیت و رفتار ربات را از یک صفحه کنترل کنید.</p></div></div>
-        <div class="settings-block app-card"><div class="block-head"><div class="feature-icon force-icon">+</div><div class="feature-copy"><h3 data-i18n="force_join">عضویت اجباری</h3><p data-i18n="force_join_desc">کاربر برای فعالیت باید عضو کانال‌های مشخص‌شده باشد.</p></div><button id="force-join-switch" class="switch" type="button"></button></div>
-          <div id="force-join-config" class="config-area"><label class="field-label" data-i18n="required_channels_count">تعداد کانال‌های اجباری</label><input id="force-join-count" class="text-input" type="number" min="0" max="20" inputmode="numeric" placeholder="0"><label class="field-label" data-i18n="channel_links">لینک کانال‌ها</label><textarea id="force-join-channels" class="text-input textarea" rows="4" placeholder="https://t.me/example"></textarea><button id="save-force-join" class="primary-button" type="button" data-i18n="save">ذخیره تغییرات</button></div>
-        </div>
-        <div class="settings-block app-card"><div class="block-head settings-heading"><div class="feature-icon shield-icon">✓</div><div class="feature-copy"><h3 data-i18n="security">امنیت</h3><p data-i18n="security_desc">قابلیت‌های امنیتی گروه را کنترل کنید.</p></div></div><div id="settings-list" class="settings-list"></div></div>
-        <p id="settings-message" class="notice" hidden></p>
-      </section>
-
       <section id="page-profile" class="page" hidden>
         <div class="profile-page-head"><div class="profile-big-wrap"><img id="profile-photo" class="avatar profile-big" alt="profile" hidden><div id="profile-avatar-fallback" class="avatar profile-big avatar-fallback">X</div></div><h1 id="profile-name">...</h1><p id="profile-username">@...</p></div>
         <div class="profile-list app-card"><div class="profile-row"><span data-i18n="profile_name">نام</span><strong id="profile-name-value">-</strong></div><div class="profile-row"><span data-i18n="profile_username">نام کاربری</span><strong id="profile-username-value">-</strong></div><div class="profile-row"><span>Telegram ID</span><strong id="profile-id">-</strong></div><div class="profile-row"><span data-i18n="language">زبان</span><strong id="profile-language">فارسی</strong></div></div>
         <button id="language-toggle" class="language-button" type="button">• فارسی / English</button>
       </section>
     </main>
-
     <nav class="bottom-nav" aria-label="navigation">
       <button class="nav-item active" data-page="home" type="button"><span class="nav-symbol">⌂</span><span data-i18n="home">خانه</span></button>
-      <button class="nav-item" data-page="groups" type="button"><span class="nav-symbol">□</span><span data-i18n="groups">گروه‌ها</span></button>
       <button class="nav-item" data-page="profile" type="button"><span class="nav-symbol">○</span><span data-i18n="profile">پروفایل</span></button>
     </nav>
     <div id="error" class="toast error" hidden></div>
