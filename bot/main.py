@@ -4,14 +4,66 @@ import asyncio
 import logging
 import os
 
-from telebot import TeleBot
-from telebot.types import Message
+from sqlalchemy import select
+from telebot import TeleBot, types
+from telebot.types import CallbackQuery, Message
 
+from api.github_connect import create_connect_state
+from bot.locales import t
 from code_agent.agent import AgentError, execute_task
 from code_agent.github_app import GitHubAppError, github_app_get
 from core.config import settings
+from database.models import GitHubInstallation, User
+from database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
+
+
+def _get_or_create_user(telegram_id: int) -> User:
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.telegram_id == telegram_id))
+        if not user:
+            user = User(telegram_id=telegram_id, language="en")
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        return user
+
+
+def _language(telegram_id: int) -> str:
+    return _get_or_create_user(telegram_id).language
+
+
+def _set_language(telegram_id: int, language: str) -> None:
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.telegram_id == telegram_id))
+        if not user:
+            user = User(telegram_id=telegram_id, language=language)
+            db.add(user)
+        else:
+            user.language = language
+        db.commit()
+
+
+def _installation(telegram_id: int) -> GitHubInstallation | None:
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.telegram_id == telegram_id))
+        if not user:
+            return None
+        return db.scalar(
+            select(GitHubInstallation)
+            .where(GitHubInstallation.user_id == user.id, GitHubInstallation.active.is_(True))
+            .order_by(GitHubInstallation.updated_at.desc())
+        )
+
+
+def _connect_markup(telegram_id: int, language: str) -> types.InlineKeyboardMarkup:
+    state = create_connect_state(telegram_id)
+    if not settings.public_base_url:
+        raise RuntimeError("PUBLIC_BASE_URL is not configured")
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton(t(language, "connect_button"), url=f"{settings.public_base_url}/github/connect?state={state}"))
+    return markup
 
 
 def build_bot() -> TeleBot:
@@ -21,83 +73,136 @@ def build_bot() -> TeleBot:
 
     bot = TeleBot(token)
 
-    def authorized(message: Message) -> bool:
-        if not settings.telegram_admin_ids:
-            bot.reply_to(message, "دسترسی مدیر تنظیم نشده است.")
-            logger.warning("Rejected Telegram request because TELEGRAM_ADMIN_IDS is empty")
-            return False
-        if message.from_user and message.from_user.id in settings.telegram_admin_ids:
-            return True
-        bot.reply_to(message, "دسترسی به Code Agent برای این حساب فعال نیست.")
-        logger.warning("Rejected Telegram user id=%s", getattr(message.from_user, "id", None))
-        return False
-
-    @bot.message_handler(commands=["start", "help"])
+    @bot.message_handler(commands=["start"])
     def start(message: Message) -> None:
-        bot.reply_to(
-            message,
-            "XAI Code Agent\n\n"
-            "/repos — فهرست مخزن‌های قابل دسترسی\n"
-            "/task owner/repo | درخواست تغییر کد\n\n"
-            "هر تغییر در یک branch جدا ساخته و به صورت Draft PR ثبت می‌شود.",
+        if not message.from_user:
+            return
+        user_id = message.from_user.id
+        language = _language(user_id)
+        payload = (message.text or "").split(maxsplit=1)
+        if len(payload) > 1 and payload[1] == "github_connected":
+            installation = _installation(user_id)
+            if installation:
+                bot.reply_to(message, t(language, "github_connected", login=installation.github_login or "GitHub"))
+                return
+        bot.reply_to(message, t(language, "welcome"), reply_markup=_connect_markup(user_id, language))
+
+    @bot.message_handler(commands=["help"])
+    def help_command(message: Message) -> None:
+        language = _language(message.from_user.id) if message.from_user else "en"
+        bot.reply_to(message, t(language, "help"), reply_markup=_connect_markup(message.from_user.id, language) if message.from_user else None)
+
+    @bot.message_handler(commands=["language"])
+    def language_command(message: Message) -> None:
+        language = _language(message.from_user.id) if message.from_user else "en"
+        markup = types.InlineKeyboardMarkup()
+        markup.add(
+            types.InlineKeyboardButton(t(language, "language_button_en"), callback_data="lang:en"),
+            types.InlineKeyboardButton(t(language, "language_button_hi"), callback_data="lang:hi"),
         )
+        bot.reply_to(message, t(language, "choose_language"), reply_markup=markup)
+
+    @bot.callback_query_handler(func=lambda call: bool(call.data and call.data.startswith("lang:")))
+    def language_callback(call: CallbackQuery) -> None:
+        if not call.from_user or not call.data:
+            return
+        language = call.data.split(":", 1)[1]
+        if language not in {"en", "hi"}:
+            bot.answer_callback_query(call.id, "Invalid language")
+            return
+        _set_language(call.from_user.id, language)
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, t(language, "language_saved", language="English" if language == "en" else "हिन्दी"))
+
+    @bot.message_handler(commands=["connect"])
+    def connect_command(message: Message) -> None:
+        if not message.from_user:
+            return
+        language = _language(message.from_user.id)
+        bot.reply_to(message, t(language, "welcome"), reply_markup=_connect_markup(message.from_user.id, language))
+
+    @bot.message_handler(commands=["disconnect"])
+    def disconnect(message: Message) -> None:
+        if not message.from_user:
+            return
+        language = _language(message.from_user.id)
+        with SessionLocal() as db:
+            user = db.scalar(select(User).where(User.telegram_id == message.from_user.id))
+            if not user:
+                bot.reply_to(message, t(language, "github_not_connected"))
+                return
+            count = db.query(GitHubInstallation).filter(GitHubInstallation.user_id == user.id, GitHubInstallation.active.is_(True)).update({"active": False})
+            db.commit()
+        bot.reply_to(message, t(language, "github_disconnected") if count else t(language, "github_not_connected"))
 
     @bot.message_handler(commands=["repos"])
     def repositories(message: Message) -> None:
-        if not authorized(message):
+        if not message.from_user:
+            return
+        language = _language(message.from_user.id)
+        installation = _installation(message.from_user.id)
+        if not installation:
+            bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(message.from_user.id, language))
             return
         try:
-            data = asyncio.run(github_app_get("/installation/repositories?per_page=100"))
+            data = asyncio.run(github_app_get("/installation/repositories?per_page=100", installation.installation_id))
             repos = data.get("repositories", [])
             if not repos:
-                bot.reply_to(message, "هیچ مخزن قابل دسترسی پیدا نشد.")
+                bot.reply_to(message, t(language, "repos_empty"))
                 return
             lines = [f"• {repo.get('full_name')}" for repo in repos[:50] if repo.get("full_name")]
-            bot.reply_to(message, "مخزن‌های قابل دسترسی:\n\n" + "\n".join(lines))
+            bot.reply_to(message, t(language, "repos_title") + "\n\n" + "\n".join(lines))
         except GitHubAppError:
             logger.exception("Failed to list GitHub repositories")
-            bot.reply_to(message, "خطا در دریافت فهرست مخزن‌ها.")
+            bot.reply_to(message, t(language, "github_error"))
 
     @bot.message_handler(commands=["task"])
     def task(message: Message) -> None:
-        if not authorized(message):
+        if not message.from_user:
             return
+        language = _language(message.from_user.id)
+        installation = _installation(message.from_user.id)
+        if not installation:
+            bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(message.from_user.id, language))
+            return
+
         raw = message.text or ""
         payload = raw[len("/task"):].strip()
         if "|" not in payload:
-            bot.reply_to(message, "فرمت:\n/task owner/repo | درخواست تغییر")
+            bot.reply_to(message, t(language, "task_format"))
             return
 
         repository, request = [part.strip() for part in payload.split("|", 1)]
         if repository.count("/") != 1 or len(request) < 3:
-            bot.reply_to(message, "مخزن یا درخواست نامعتبر است.")
+            bot.reply_to(message, t(language, "invalid_repo"))
             return
 
-        bot.reply_to(message, "درخواست دریافت شد. در حال تحلیل مخزن و ساخت تغییرات...")
+        bot.reply_to(message, t(language, "task_received"))
         try:
-            result = _run_task(repository, request)
+            result = asyncio.run(
+                execute_task(settings.gemini_api_key, settings.gemini_model, repository, request, installation.installation_id, True)
+            )
             if result["status"] == "no_changes":
-                bot.reply_to(message, "تغییری لازم تشخیص داده نشد.\n" + result["summary"][:1500])
+                bot.reply_to(message, t(language, "no_changes", summary=result["summary"][:1500]))
                 return
 
             pr = result.get("pull_request", {})
-            reply = "تغییرات آماده شد.\n\n" + result.get("summary", "")
-            reply += "\n\nفایل‌ها:\n" + "\n".join(f"• {p}" for p in result.get("changes", []))
-            reply += f"\n\nCommit: {result.get('commit', '')[:12]}"
-            if pr.get("url"):
-                reply += f"\nPR: {pr['url']}"
+            pr_text = f"\nPR: {pr['url']}" if pr.get("url") else ""
+            files = "\n".join(f"• {p}" for p in result.get("changes", []))
+            reply = t(
+                language,
+                "changes_ready",
+                summary=result.get("summary", ""),
+                files=files,
+                commit=result.get("commit", "")[:12],
+                pr=pr_text,
+            )
             bot.reply_to(message, reply[:4000])
         except (AgentError, GitHubAppError, RuntimeError):
             logger.exception("Agent task failed for repository=%s", repository)
-            bot.reply_to(message, "اجرای درخواست ناموفق بود. جزئیات خطا در لاگ سرور ثبت شد.")
+            bot.reply_to(message, t(language, "task_failed"))
 
     return bot
-
-
-def _run_task(repository: str, request: str) -> dict:
-    return asyncio.run(
-        execute_task(settings.gemini_api_key, settings.gemini_model, repository, request, True)
-    )
 
 
 def run_bot() -> None:
