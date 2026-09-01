@@ -18,6 +18,11 @@ class Settings:
     github_app_installation_id: str = os.getenv("GITHUB_INSTALLATION_ID", "")
     github_webhook_secret: str = os.getenv("GITHUB_WEBHOOK_SECRET", "")
     code_agent_api_key: str = os.getenv("CODE_AGENT_API_KEY", "")
+    telegram_admin_ids: tuple[int, ...] = tuple(
+        int(value.strip())
+        for value in os.getenv("TELEGRAM_ADMIN_IDS", "").split(",")
+        if value.strip().lstrip("-").isdigit()
+    )
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./xai_master.db")
 
 
