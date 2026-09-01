@@ -18,20 +18,16 @@ TEXT_EXTENSIONS = {".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".md", ".yml", 
 MAX_CONTEXT_CHARS = 120_000
 MAX_CHANGED_FILES = 8
 MAX_FILE_CHARS = 300_000
-PROTECTED_PATHS = {
-    ".env",
-    ".env.example",
-    "credentials.json",
-    "service-account.json",
-}
+PROTECTED_PATHS = {".env", ".env.example", "credentials.json", "service-account.json"}
 PROTECTED_PREFIXES = (".git/", ".github/workflows/")
 
 
 def _safe_path(path: str) -> bool:
-    if not path or path.startswith("/") or ".." in path.split("/"):
+    if not path or path.startswith("/"):
         return False
     normalized = path.replace("\\", "/").strip("/")
-    if not normalized or normalized.startswith(PROTECTED_PREFIXES):
+    parts = normalized.split("/") if normalized else []
+    if not normalized or ".." in parts or normalized.startswith(PROTECTED_PREFIXES):
         return False
     if normalized in PROTECTED_PATHS or normalized.endswith((".pem", ".key")):
         return False
