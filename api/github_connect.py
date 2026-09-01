@@ -21,6 +21,12 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _is_expired(value: datetime) -> bool:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value < _now()
+
+
 def create_connect_state(telegram_id: int) -> str:
     token = secrets.token_urlsafe(32)
     with SessionLocal() as db:
@@ -59,7 +65,7 @@ async def setup(
 ) -> HTMLResponse | RedirectResponse:
     with SessionLocal() as db:
         connect_state = db.scalar(select(GitHubConnectState).where(GitHubConnectState.state == state))
-        if not connect_state or connect_state.used_at is not None or connect_state.expires_at < _now():
+        if not connect_state or connect_state.used_at is not None or _is_expired(connect_state.expires_at):
             return HTMLResponse("GitHub connection state is invalid or expired.", status_code=400)
 
         connect_state.used_at = _now()
