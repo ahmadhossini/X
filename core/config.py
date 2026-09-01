@@ -17,6 +17,7 @@ class Settings:
     github_app_private_key: str = os.getenv("GITHUB_APP_PRIVATE_KEY", "")
     github_app_installation_id: str = os.getenv("GITHUB_INSTALLATION_ID", "")
     github_webhook_secret: str = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+    code_agent_api_key: str = os.getenv("CODE_AGENT_API_KEY", "")
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./xai_master.db")
 
 
