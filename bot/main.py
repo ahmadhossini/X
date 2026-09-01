@@ -66,12 +66,28 @@ def _connect_markup(telegram_id: int, language: str) -> types.InlineKeyboardMark
     return markup
 
 
+def _set_bot_commands(bot: TeleBot) -> None:
+    """Register the commands shown in Telegram's bot command menu."""
+    bot.set_my_commands(
+        [
+            types.BotCommand("start", "Start XAI Code Agent"),
+            types.BotCommand("connect", "Connect GitHub"),
+            types.BotCommand("repos", "List accessible repositories"),
+            types.BotCommand("task", "Create a code change and Draft PR"),
+            types.BotCommand("language", "Change language"),
+            types.BotCommand("disconnect", "Disconnect GitHub"),
+            types.BotCommand("help", "Show help"),
+        ]
+    )
+
+
 def build_bot() -> TeleBot:
     token = os.getenv("BOT_TOKEN", "")
     if not token:
         raise RuntimeError("BOT_TOKEN is not configured")
 
     bot = TeleBot(token)
+    _set_bot_commands(bot)
 
     @bot.message_handler(commands=["start"])
     def start(message: Message) -> None:
