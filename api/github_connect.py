@@ -21,21 +21,7 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _base_url() -> str:
-    if not settings.public_base_url:
-        raise HTTPException(status_code=500, detail="PUBLIC_BASE_URL is not configured")
-    return settings.public_base_url
-
-
-def _github_install_url(state: str) -> str:
-    if not settings.github_app_slug:
-        raise HTTPException(status_code=500, detail="GITHUB_APP_SLUG is not configured")
-    params = urlencode({"state": state})
-    return f"https://github.com/apps/{settings.github_app_slug}/installations/new?{params}"
-
-
-@router.get("/connect")
-def connect(telegram_id: int = Query(..., gt=0)) -> RedirectResponse:
+def create_connect_state(telegram_id: int) -> str:
     token = secrets.token_urlsafe(32)
     with SessionLocal() as db:
         db.add(
@@ -46,7 +32,23 @@ def connect(telegram_id: int = Query(..., gt=0)) -> RedirectResponse:
             )
         )
         db.commit()
-    return RedirectResponse(_github_install_url(token), status_code=302)
+    return token
+
+
+def _github_install_url(state: str) -> str:
+    if not settings.github_app_slug:
+        raise HTTPException(status_code=500, detail="GITHUB_APP_SLUG is not configured")
+    params = urlencode({"state": state})
+    return f"https://github.com/apps/{settings.github_app_slug}/installations/new?{params}"
+
+
+@router.get("/connect")
+def connect(state: str = Query(..., min_length=20, max_length=128)) -> RedirectResponse:
+    with SessionLocal() as db:
+        valid = db.scalar(select(GitHubConnectState.id).where(GitHubConnectState.state == state))
+        if not valid:
+            raise HTTPException(status_code=400, detail="Invalid connection state")
+    return RedirectResponse(_github_install_url(state), status_code=302)
 
 
 @router.get("/setup", response_class=HTMLResponse)
