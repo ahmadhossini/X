@@ -12,13 +12,19 @@ class GitHubRepoError(RuntimeError):
 
 
 class GitHubRepo:
-    def __init__(self, full_name: str):
+    def __init__(self, full_name: str, installation_id: int):
         if full_name.count("/") != 1 or any(part in full_name for part in ("..", " ")):
             raise GitHubRepoError("Invalid repository name")
+        if not installation_id:
+            raise GitHubRepoError("GitHub installation is required")
         self.full_name = full_name
+        self.installation_id = installation_id
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
-        token = await installation_token()
+        try:
+            token = await installation_token(self.installation_id)
+        except GitHubAppError as exc:
+            raise GitHubRepoError(str(exc)) from exc
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
