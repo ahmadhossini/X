@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from typing import Any
 
 from google import genai
@@ -37,7 +38,8 @@ def _safe_path(path: str) -> bool:
 def _branch_name(request: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", request.lower()).strip("-")[:45].rstrip("-") or "change"
     digest = hashlib.sha256(request.encode("utf-8")).hexdigest()[:8]
-    return f"xai-agent/{slug}-{digest}-{hashlib.sha1(str(__import__('time').time_ns()).encode()).hexdigest()[:6]}"
+    unique = hashlib.sha1(str(time.time_ns()).encode()).hexdigest()[:6]
+    return f"xai-agent/{slug}-{digest}-{unique}"
 
 
 async def build_context(repo: GitHubRepo, ref: str, limit: int = 40) -> dict[str, str]:
