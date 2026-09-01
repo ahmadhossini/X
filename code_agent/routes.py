@@ -4,6 +4,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from code_agent.agent import AgentError, execute_task
+from code_agent.github import GitHubRepoError
 from code_agent.github_app import GitHubAppError, github_app_get
 from code_agent.service import CodeAgentError, analyze_code
 from core.config import settings
@@ -49,6 +50,8 @@ async def task(payload: TaskRequest, x_api_key: str | None = Header(default=None
         return await execute_task(settings.gemini_api_key, settings.gemini_model, payload.repository, payload.request, payload.create_pr)
     except AgentError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except GitHubRepoError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except GitHubAppError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
