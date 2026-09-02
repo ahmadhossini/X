@@ -239,3 +239,10 @@ def build_bot() -> TeleBot:
             bot.send_message(message.chat.id, t(language, "help"), reply_markup=_main_keyboard(language))
 
     return bot
+
+
+def run_bot() -> None:
+    """Build the Telegram bot and keep long polling alive."""
+    bot = build_bot()
+    logger.info("Telegram bot polling started")
+    bot.infinity_polling(skip_pending=True)
