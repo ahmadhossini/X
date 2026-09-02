@@ -18,12 +18,15 @@ from database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_LANGUAGES = {"en", "hi", "fa"}
+LANGUAGE_NAMES = {"en": "English", "hi": "हिन्दी", "fa": "فارسی"}
+
 
 def _get_or_create_user(telegram_id: int) -> User:
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.telegram_id == telegram_id))
         if not user:
-            user = User(telegram_id=telegram_id, language="fa")
+            user = User(telegram_id=telegram_id, language="unset")
             db.add(user)
             db.commit()
             db.refresh(user)
@@ -31,7 +34,12 @@ def _get_or_create_user(telegram_id: int) -> User:
 
 
 def _language(telegram_id: int) -> str:
-    return _get_or_create_user(telegram_id).language
+    language = _get_or_create_user(telegram_id).language
+    return language if language in SUPPORTED_LANGUAGES else "en"
+
+
+def _language_selected(telegram_id: int) -> bool:
+    return _get_or_create_user(telegram_id).language in SUPPORTED_LANGUAGES
 
 
 def _set_language(telegram_id: int, language: str) -> None:
@@ -54,11 +62,16 @@ def _installation(telegram_id: int) -> GitHubInstallation | None:
 
 
 def _connect_markup(telegram_id: int, language: str) -> types.InlineKeyboardMarkup:
-    state = create_connect_state(telegram_id)
-    if not settings.public_base_url:
-        raise RuntimeError("PUBLIC_BASE_URL is not configured")
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton(t(language, "connect_button"), url=f"{settings.public_base_url}/github/connect?state={state}"))
+    try:
+        state = create_connect_state(telegram_id)
+        if not settings.public_base_url:
+            raise RuntimeError("PUBLIC_BASE_URL is not configured")
+        url = f"{settings.public_base_url}/github/connect?state={state}"
+        markup.add(types.InlineKeyboardButton(t(language, "connect_button"), url=url))
+    except Exception:
+        logger.exception("Failed to create GitHub connect button for telegram_id=%s", telegram_id)
+        markup.add(types.InlineKeyboardButton(t(language, "connect_button"), callback_data="github:config_error"))
     return markup
 
 
@@ -75,16 +88,36 @@ def _main_keyboard(language: str) -> types.ReplyKeyboardMarkup:
     return markup
 
 
-def _set_bot_commands(bot: TeleBot) -> None:
-    bot.set_my_commands([
-        types.BotCommand("start", "Start XAI Code Agent"),
-        types.BotCommand("connect", "Connect GitHub"),
-        types.BotCommand("repos", "List accessible repositories"),
-        types.BotCommand("task", "Create a code change and Draft PR"),
-        types.BotCommand("language", "Change language"),
-        types.BotCommand("disconnect", "Disconnect GitHub"),
-        types.BotCommand("help", "Show help"),
-    ])
+def _language_markup() -> types.InlineKeyboardMarkup:
+    markup = types.InlineKeyboardMarkup()
+    markup.row(
+        types.InlineKeyboardButton("English", callback_data="lang:en"),
+        types.InlineKeyboardButton("हिन्दी", callback_data="lang:hi"),
+        types.InlineKeyboardButton("فارسی", callback_data="lang:fa"),
+    )
+    return markup
+
+
+def _set_user_commands(bot: TeleBot, user_id: int, language: str) -> None:
+    descriptions = {
+        "en": {
+            "start": "Start XAI Code Agent", "connect": "Connect GitHub", "repos": "List repositories",
+            "task": "Create a code change", "language": "Change language", "disconnect": "Disconnect GitHub", "help": "Show help",
+        },
+        "hi": {
+            "start": "XAI Code Agent शुरू करें", "connect": "GitHub कनेक्ट करें", "repos": "Repositories देखें",
+            "task": "Code change बनाएँ", "language": "भाषा बदलें", "disconnect": "GitHub डिस्कनेक्ट करें", "help": "मदद देखें",
+        },
+        "fa": {
+            "start": "شروع XAI Code Agent", "connect": "اتصال GitHub", "repos": "نمایش مخزن‌ها",
+            "task": "ایجاد تغییر کد", "language": "تغییر زبان", "disconnect": "قطع اتصال GitHub", "help": "نمایش راهنما",
+        },
+    }
+    d = descriptions.get(language, descriptions["en"])
+    bot.set_my_commands(
+        [types.BotCommand(command, description) for command, description in d.items()],
+        scope=types.BotCommandScopeChat(user_id),
+    )
 
 
 def build_bot() -> TeleBot:
@@ -100,49 +133,63 @@ def build_bot() -> TeleBot:
         if not message.from_user:
             return
         user_id = message.from_user.id
-        language = _language(user_id)
         payload = (message.text or "").split(maxsplit=1)
+
+        if len(payload) > 1 and payload[1] == "connect_github":
+            language = _language(user_id)
+            bot.reply_to(message, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language))
+            return
+
+        if not _language_selected(user_id):
+            bot.reply_to(message, "Choose your language / अपनी भाषा चुनें / زبان خود را انتخاب کنید:", reply_markup=_language_markup())
+            return
+
+        language = _language(user_id)
         if len(payload) > 1 and payload[1] == "github_connected":
             installation = _installation(user_id)
             if installation:
                 bot.reply_to(message, t(language, "github_connected", login=installation.github_login or "GitHub"), reply_markup=_main_keyboard(language))
                 return
-        if len(payload) > 1 and payload[1] == "connect_github":
-            bot.reply_to(message, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language))
-            return
         bot.reply_to(message, t(language, "welcome"), reply_markup=_main_keyboard(language))
-        bot.send_message(message.chat.id, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language))
 
     @bot.message_handler(commands=["help"])
     def help_command(message: Message) -> None:
-        language = _language(message.from_user.id) if message.from_user else "fa"
+        if not message.from_user:
+            return
+        user_id = message.from_user.id
+        if not _language_selected(user_id):
+            bot.reply_to(message, "Choose your language / अपनी भाषा चुनें / زبان خود را انتخاب کنید:", reply_markup=_language_markup())
+            return
+        language = _language(user_id)
         bot.reply_to(message, t(language, "help"), reply_markup=_main_keyboard(language))
-        if message.from_user:
-            bot.send_message(message.chat.id, t(language, "connect_button_hint"), reply_markup=_connect_markup(message.from_user.id, language))
 
     @bot.message_handler(commands=["language"])
     def language_command(message: Message) -> None:
-        language = _language(message.from_user.id) if message.from_user else "fa"
-        markup = types.InlineKeyboardMarkup()
-        markup.row(
-            types.InlineKeyboardButton(t(language, "language_button_en"), callback_data="lang:en"),
-            types.InlineKeyboardButton(t(language, "language_button_hi"), callback_data="lang:hi"),
-            types.InlineKeyboardButton(t(language, "language_button_fa"), callback_data="lang:fa"),
-        )
-        bot.reply_to(message, t(language, "choose_language"), reply_markup=markup)
+        language = _language(message.from_user.id) if message.from_user else "en"
+        bot.reply_to(message, t(language, "choose_language"), reply_markup=_language_markup())
 
     @bot.callback_query_handler(func=lambda call: bool(call.data and call.data.startswith("lang:")))
     def language_callback(call: CallbackQuery) -> None:
         if not call.from_user or not call.data:
             return
         language = call.data.split(":", 1)[1]
-        if language not in {"en", "hi", "fa"}:
+        if language not in SUPPORTED_LANGUAGES:
             bot.answer_callback_query(call.id, "Invalid language")
             return
         _set_language(call.from_user.id, language)
+        _set_user_commands(bot, call.from_user.id, language)
         bot.answer_callback_query(call.id)
-        names = {"en": "English", "hi": "हिन्दी", "fa": "فارسی"}
-        bot.send_message(call.message.chat.id, t(language, "language_saved", language=names[language]), reply_markup=_main_keyboard(language))
+        if call.message:
+            bot.send_message(
+                call.message.chat.id,
+                t(language, "language_saved", language=LANGUAGE_NAMES[language]) + "\n\n" + t(language, "welcome"),
+                reply_markup=_main_keyboard(language),
+            )
+
+    @bot.callback_query_handler(func=lambda call: bool(call.data == "github:config_error"))
+    def github_config_error(call: CallbackQuery) -> None:
+        language = _language(call.from_user.id) if call.from_user else "en"
+        bot.answer_callback_query(call.id, t(language, "github_config_error"), show_alert=True)
 
     @bot.message_handler(commands=["connect"])
     def connect_command(message: Message) -> None:
@@ -236,9 +283,21 @@ def build_bot() -> TeleBot:
         elif text == t(language, "disconnect_menu_button"):
             disconnect(message)
         elif text == "XAI Code Agent":
-            bot.send_message(message.chat.id, t(language, "help"), reply_markup=_main_keyboard(language))
+            bot.send_message(message.chat.id, t(language, "menu_home"), reply_markup=_main_keyboard(language))
 
     return bot
+
+
+def _set_bot_commands(bot: TeleBot) -> None:
+    bot.set_my_commands([
+        types.BotCommand("start", "Start XAI Code Agent"),
+        types.BotCommand("connect", "Connect GitHub"),
+        types.BotCommand("repos", "List accessible repositories"),
+        types.BotCommand("task", "Create a code change and Draft PR"),
+        types.BotCommand("language", "Change language"),
+        types.BotCommand("disconnect", "Disconnect GitHub"),
+        types.BotCommand("help", "Show help"),
+    ])
 
 
 def run_bot() -> None:
