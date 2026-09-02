@@ -58,16 +58,21 @@ def _installation(telegram_id: int) -> GitHubInstallation | None:
         user = db.scalar(select(User).where(User.telegram_id == telegram_id))
         if not user:
             return None
-        return db.scalar(select(GitHubInstallation).where(GitHubInstallation.user_id == user.id, GitHubInstallation.active.is_(True)).order_by(GitHubInstallation.updated_at.desc()))
+        return db.scalar(
+            select(GitHubInstallation)
+            .where(GitHubInstallation.user_id == user.id, GitHubInstallation.active.is_(True))
+            .order_by(GitHubInstallation.updated_at.desc())
+        )
 
 
 def _connect_markup(telegram_id: int, language: str) -> types.InlineKeyboardMarkup:
     markup = types.InlineKeyboardMarkup()
     try:
         state = create_connect_state(telegram_id)
-        if not settings.public_base_url:
+        base_url = settings.public_base_url.rstrip("/")
+        if not base_url:
             raise RuntimeError("PUBLIC_BASE_URL is not configured")
-        url = f"{settings.public_base_url}/github/connect?state={state}"
+        url = f"{base_url}/github/connect?state={state}"
         markup.add(types.InlineKeyboardButton(t(language, "connect_button"), url=url))
     except Exception:
         logger.exception("Failed to create GitHub connect button for telegram_id=%s", telegram_id)
@@ -78,7 +83,7 @@ def _connect_markup(telegram_id: int, language: str) -> types.InlineKeyboardMark
 def _main_keyboard(language: str) -> types.ReplyKeyboardMarkup:
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
-        types.KeyboardButton("XAI Code Agent"),
+        types.KeyboardButton(t(language, "brand_button")),
         types.KeyboardButton(t(language, "connect_menu_button")),
         types.KeyboardButton(t(language, "repos_menu_button")),
         types.KeyboardButton(t(language, "task_menu_button")),
@@ -120,6 +125,10 @@ def _set_user_commands(bot: TeleBot, user_id: int, language: str) -> None:
     )
 
 
+def _language_prompt() -> str:
+    return "Choose your language / अपनी भाषा चुनें / زبان خود را انتخاب کنید:"
+
+
 def build_bot() -> TeleBot:
     token = os.getenv("BOT_TOKEN", "")
     if not token:
@@ -135,22 +144,26 @@ def build_bot() -> TeleBot:
         user_id = message.from_user.id
         payload = (message.text or "").split(maxsplit=1)
 
-        if len(payload) > 1 and payload[1] == "connect_github":
-            language = _language(user_id)
-            bot.reply_to(message, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language))
-            return
-
+        # Language selection is mandatory before every other onboarding action.
         if not _language_selected(user_id):
-            bot.reply_to(message, "Choose your language / अपनी भाषा चुनें / زبان خود را انتخاب کنید:", reply_markup=_language_markup())
+            bot.reply_to(message, _language_prompt(), reply_markup=_language_markup())
             return
 
         language = _language(user_id)
+        if len(payload) > 1 and payload[1] == "connect_github":
+            bot.reply_to(message, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language))
+            return
+
         if len(payload) > 1 and payload[1] == "github_connected":
             installation = _installation(user_id)
             if installation:
-                bot.reply_to(message, t(language, "github_connected", login=installation.github_login or "GitHub"), reply_markup=_main_keyboard(language))
+                bot.reply_to(
+                    message,
+                    t(language, "github_connected", login=installation.github_login or "GitHub"),
+                    reply_markup=_main_keyboard(language),
+                )
                 return
-        bot.reply_to(message, t(language, "welcome"), reply_markup=_main_keyboard(language))
+        bot.reply_to(message, t(language, "welcome"), reply_markup=_main_keyboard(language), parse_mode="HTML")
 
     @bot.message_handler(commands=["help"])
     def help_command(message: Message) -> None:
@@ -158,14 +171,16 @@ def build_bot() -> TeleBot:
             return
         user_id = message.from_user.id
         if not _language_selected(user_id):
-            bot.reply_to(message, "Choose your language / अपनी भाषा चुनें / زبان خود را انتخاب کنید:", reply_markup=_language_markup())
+            bot.reply_to(message, _language_prompt(), reply_markup=_language_markup())
             return
         language = _language(user_id)
         bot.reply_to(message, t(language, "help"), reply_markup=_main_keyboard(language))
 
     @bot.message_handler(commands=["language"])
     def language_command(message: Message) -> None:
-        language = _language(message.from_user.id) if message.from_user else "en"
+        if not message.from_user:
+            return
+        language = _language(message.from_user.id) if _language_selected(message.from_user.id) else "en"
         bot.reply_to(message, t(language, "choose_language"), reply_markup=_language_markup())
 
     @bot.callback_query_handler(func=lambda call: bool(call.data and call.data.startswith("lang:")))
@@ -178,12 +193,13 @@ def build_bot() -> TeleBot:
             return
         _set_language(call.from_user.id, language)
         _set_user_commands(bot, call.from_user.id, language)
-        bot.answer_callback_query(call.id)
+        bot.answer_callback_query(call.id, t(language, "language_selected"))
         if call.message:
             bot.send_message(
                 call.message.chat.id,
                 t(language, "language_saved", language=LANGUAGE_NAMES[language]) + "\n\n" + t(language, "welcome"),
                 reply_markup=_main_keyboard(language),
+                parse_mode="HTML",
             )
 
     @bot.callback_query_handler(func=lambda call: bool(call.data == "github:config_error"))
@@ -195,31 +211,50 @@ def build_bot() -> TeleBot:
     def connect_command(message: Message) -> None:
         if not message.from_user:
             return
-        language = _language(message.from_user.id)
-        bot.reply_to(message, t(language, "connect_button_hint"), reply_markup=_connect_markup(message.from_user.id, language))
+        user_id = message.from_user.id
+        if not _language_selected(user_id):
+            bot.reply_to(message, _language_prompt(), reply_markup=_language_markup())
+            return
+        language = _language(user_id)
+        bot.reply_to(message, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language))
 
     @bot.message_handler(commands=["disconnect"])
     def disconnect(message: Message) -> None:
         if not message.from_user:
             return
-        language = _language(message.from_user.id)
+        user_id = message.from_user.id
+        if not _language_selected(user_id):
+            bot.reply_to(message, _language_prompt(), reply_markup=_language_markup())
+            return
+        language = _language(user_id)
         with SessionLocal() as db:
-            user = db.scalar(select(User).where(User.telegram_id == message.from_user.id))
+            user = db.scalar(select(User).where(User.telegram_id == user_id))
             if not user:
                 bot.reply_to(message, t(language, "github_not_connected"), reply_markup=_main_keyboard(language))
                 return
-            count = db.query(GitHubInstallation).filter(GitHubInstallation.user_id == user.id, GitHubInstallation.active.is_(True)).update({"active": False})
+            count = db.query(GitHubInstallation).filter(
+                GitHubInstallation.user_id == user.id,
+                GitHubInstallation.active.is_(True),
+            ).update({"active": False})
             db.commit()
-        bot.reply_to(message, t(language, "github_disconnected") if count else t(language, "github_not_connected"), reply_markup=_main_keyboard(language))
+        bot.reply_to(
+            message,
+            t(language, "github_disconnected") if count else t(language, "github_not_connected"),
+            reply_markup=_main_keyboard(language),
+        )
 
     @bot.message_handler(commands=["repos"])
     def repositories(message: Message) -> None:
         if not message.from_user:
             return
-        language = _language(message.from_user.id)
-        installation = _installation(message.from_user.id)
+        user_id = message.from_user.id
+        if not _language_selected(user_id):
+            bot.reply_to(message, _language_prompt(), reply_markup=_language_markup())
+            return
+        language = _language(user_id)
+        installation = _installation(user_id)
         if not installation:
-            bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(message.from_user.id, language))
+            bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(user_id, language))
             return
         try:
             data = asyncio.run(github_app_get("/installation/repositories?per_page=100", installation.installation_id))
@@ -237,10 +272,14 @@ def build_bot() -> TeleBot:
     def task(message: Message) -> None:
         if not message.from_user:
             return
-        language = _language(message.from_user.id)
-        installation = _installation(message.from_user.id)
+        user_id = message.from_user.id
+        if not _language_selected(user_id):
+            bot.reply_to(message, _language_prompt(), reply_markup=_language_markup())
+            return
+        language = _language(user_id)
+        installation = _installation(user_id)
         if not installation:
-            bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(message.from_user.id, language))
+            bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(user_id, language))
             return
         raw = message.text or ""
         payload = raw[len("/task"):].strip()
@@ -270,10 +309,14 @@ def build_bot() -> TeleBot:
     def menu_buttons(message: Message) -> None:
         if not message.from_user:
             return
-        language = _language(message.from_user.id)
+        user_id = message.from_user.id
+        if not _language_selected(user_id):
+            bot.reply_to(message, _language_prompt(), reply_markup=_language_markup())
+            return
+        language = _language(user_id)
         text = (message.text or "").strip()
         if text == t(language, "connect_menu_button"):
-            bot.send_message(message.chat.id, t(language, "connect_button_hint"), reply_markup=_connect_markup(message.from_user.id, language))
+            bot.send_message(message.chat.id, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language))
         elif text == t(language, "repos_menu_button"):
             repositories(message)
         elif text == t(language, "task_menu_button"):
@@ -282,7 +325,7 @@ def build_bot() -> TeleBot:
             language_command(message)
         elif text == t(language, "disconnect_menu_button"):
             disconnect(message)
-        elif text == "XAI Code Agent":
+        elif text == t(language, "brand_button"):
             bot.send_message(message.chat.id, t(language, "menu_home"), reply_markup=_main_keyboard(language))
 
     return bot
