@@ -4,7 +4,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 
@@ -57,12 +57,12 @@ def connect(state: str = Query(..., min_length=20, max_length=128)) -> RedirectR
     return RedirectResponse(_github_install_url(state), status_code=302)
 
 
-@router.get("/setup", response_class=HTMLResponse)
+@router.get("/setup", response_class=HTMLResponse, response_model=None)
 async def setup(
     installation_id: int = Query(..., gt=0),
     state: str = Query(..., min_length=20, max_length=128),
     setup_action: str = Query(default="install"),
-) -> HTMLResponse | RedirectResponse:
+) -> Response:
     with SessionLocal() as db:
         connect_state = db.scalar(select(GitHubConnectState).where(GitHubConnectState.state == state))
         if not connect_state or connect_state.used_at is not None or _is_expired(connect_state.expires_at):
