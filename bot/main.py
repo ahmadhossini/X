@@ -144,7 +144,6 @@ def build_bot() -> TeleBot:
         user_id = message.from_user.id
         payload = (message.text or "").split(maxsplit=1)
 
-        # Language selection is mandatory before every other onboarding action.
         if not _language_selected(user_id):
             bot.reply_to(message, _language_prompt(), reply_markup=_language_markup())
             return
@@ -191,16 +190,38 @@ def build_bot() -> TeleBot:
         if language not in SUPPORTED_LANGUAGES:
             bot.answer_callback_query(call.id, "Invalid language")
             return
-        _set_language(call.from_user.id, language)
-        _set_user_commands(bot, call.from_user.id, language)
-        bot.answer_callback_query(call.id, t(language, "language_selected"))
-        if call.message:
-            bot.send_message(
-                call.message.chat.id,
-                t(language, "language_saved", language=LANGUAGE_NAMES[language]) + "\n\n" + t(language, "welcome"),
-                reply_markup=_main_keyboard(language),
-                parse_mode="HTML",
-            )
+
+        try:
+            _set_language(call.from_user.id, language)
+            _set_user_commands(bot, call.from_user.id, language)
+            bot.answer_callback_query(call.id, t(language, "language_selected"))
+
+            # Update the language-selection message immediately, then send the
+            # localized welcome with the normal reply keyboard. This removes the
+            # need for the user to press /start again after choosing a language.
+            if call.message:
+                try:
+                    bot.edit_message_text(
+                        t(language, "language_selected") + "\n\n" + t(language, "welcome"),
+                        chat_id=call.message.chat.id,
+                        message_id=call.message.message_id,
+                        parse_mode="HTML",
+                    )
+                except Exception:
+                    logger.exception("Failed to edit language selection message")
+
+                bot.send_message(
+                    call.message.chat.id,
+                    t(language, "menu_home"),
+                    reply_markup=_main_keyboard(language),
+                    parse_mode="HTML",
+                )
+        except Exception:
+            logger.exception("Language selection failed for telegram_id=%s", call.from_user.id)
+            try:
+                bot.answer_callback_query(call.id, "Language selection failed. Please try again.", show_alert=True)
+            except Exception:
+                pass
 
     @bot.callback_query_handler(func=lambda call: bool(call.data == "github:config_error"))
     def github_config_error(call: CallbackQuery) -> None:
@@ -326,7 +347,7 @@ def build_bot() -> TeleBot:
         elif text == t(language, "disconnect_menu_button"):
             disconnect(message)
         elif text == t(language, "brand_button"):
-            bot.send_message(message.chat.id, t(language, "menu_home"), reply_markup=_main_keyboard(language))
+            bot.send_message(message.chat.id, t(language, "menu_home"), reply_markup=_main_keyboard(language), parse_mode="HTML")
 
     return bot
 
