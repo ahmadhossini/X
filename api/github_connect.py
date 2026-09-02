@@ -48,8 +48,46 @@ def _github_install_url(state: str) -> str:
     return f"https://github.com/apps/{settings.github_app_slug}/installations/new?{params}"
 
 
+_PUBLIC_CONNECT_PAGE = """<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>XAI Code Agent — اتصال GitHub</title>
+<style>
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:radial-gradient(circle at top,#182338 0,#080b12 55%,#05070b 100%);color:#f5f7fb;font-family:system-ui,-apple-system,Segoe UI,Tahoma,sans-serif}.card{width:min(560px,100%);padding:38px;border:1px solid rgba(255,255,255,.13);border-radius:28px;background:rgba(255,255,255,.07);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);box-shadow:0 24px 80px rgba(0,0,0,.4);text-align:center}.brand{font-size:14px;letter-spacing:.12em;text-transform:uppercase;opacity:.65;margin-bottom:14px}.title{font-size:32px;font-weight:800;margin:0 0 14px}.text{font-size:16px;line-height:1.9;color:#c9d0dc;margin:0 auto 26px;max-width:470px}.steps{text-align:right;margin:0 0 28px;padding:18px 20px;border-radius:18px;background:rgba(0,0,0,.16);border:1px solid rgba(255,255,255,.08)}.steps div{margin:9px 0;color:#dce2ec}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#dce2ec;margin-left:9px}.button{display:inline-block;padding:14px 24px;border-radius:15px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.2);color:#fff;text-decoration:none;font-weight:700;transition:.2s}.button:hover{background:rgba(255,255,255,.2);transform:translateY(-1px)}.note{font-size:13px;color:#929baa;margin-top:18px;line-height:1.7}@media(max-width:480px){.card{padding:28px 20px}.title{font-size:27px}}
+</style>
+</head>
+<body>
+<main class="card">
+<div class="brand">XAI CODE AGENT</div>
+<h1 class="title">اتصال امن به GitHub</h1>
+<p class="text">برای اتصال حساب GitHub خودت، ابتدا وارد ربات XAI Code Agent در تلگرام شو. اتصال برای حساب خودت انجام می‌شود و حساب GitHub کاربران دیگر به حساب تو متصل نخواهد شد.</p>
+<section class="steps">
+<div><span class="dot"></span>ورود به ربات XAI Code Agent</div>
+<div><span class="dot"></span>انتخاب گزینه «اتصال GitHub»</div>
+<div><span class="dot"></span>ورود به GitHub و انتخاب Repositoryهای موردنظر</div>
+</section>
+<a class="button" href="{telegram_url}">ورود به ربات و اتصال GitHub</a>
+<p class="note">لینک اتصال مستقیم GitHub فقط پس از ایجاد نشست اختصاصی کاربر توسط ربات فعال می‌شود.</p>
+</main>
+</body>
+</html>"""
+
+
+def _public_connect_page() -> HTMLResponse:
+    telegram_url = f"https://t.me/{settings.bot_username}?start=connect_github" if settings.bot_username else "#"
+    html = _PUBLIC_CONNECT_PAGE.format(telegram_url=telegram_url)
+    return HTMLResponse(html, status_code=200)
+
+
 @router.get("/connect")
-def connect(state: str = Query(..., min_length=20, max_length=128)) -> RedirectResponse:
+def connect(state: str | None = Query(default=None, min_length=20, max_length=128)) -> Response:
+    # Public URL: show a landing page instead of exposing a state-validation error.
+    # Stateful URL: continue the per-Telegram-user GitHub App installation flow.
+    if not state:
+        return _public_connect_page()
+
     with SessionLocal() as db:
         valid = db.scalar(select(GitHubConnectState.id).where(GitHubConnectState.state == state))
         if not valid:
