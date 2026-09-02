@@ -107,6 +107,9 @@ def build_bot() -> TeleBot:
             if installation:
                 bot.reply_to(message, t(language, "github_connected", login=installation.github_login or "GitHub"), reply_markup=_main_keyboard(language))
                 return
+        if len(payload) > 1 and payload[1] == "connect_github":
+            bot.reply_to(message, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language))
+            return
         bot.reply_to(message, t(language, "welcome"), reply_markup=_main_keyboard(language))
         bot.send_message(message.chat.id, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language))
 
@@ -222,23 +225,17 @@ def build_bot() -> TeleBot:
             return
         language = _language(message.from_user.id)
         text = (message.text or "").strip()
-        if text == "XAI Code Agent":
-            bot.reply_to(message, t(language, "menu_home"), reply_markup=_main_keyboard(language))
-        elif text == t(language, "connect_menu_button"):
-            connect_command(message)
+        if text == t(language, "connect_menu_button"):
+            bot.send_message(message.chat.id, t(language, "connect_button_hint"), reply_markup=_connect_markup(message.from_user.id, language))
         elif text == t(language, "repos_menu_button"):
             repositories(message)
         elif text == t(language, "task_menu_button"):
-            bot.reply_to(message, t(language, "task_format"), reply_markup=_main_keyboard(language))
+            bot.send_message(message.chat.id, t(language, "task_format"), reply_markup=_main_keyboard(language))
         elif text == t(language, "language_menu_button"):
             language_command(message)
         elif text == t(language, "disconnect_menu_button"):
             disconnect(message)
+        elif text == "XAI Code Agent":
+            bot.send_message(message.chat.id, t(language, "help"), reply_markup=_main_keyboard(language))
 
     return bot
-
-
-def run_bot() -> None:
-    bot = build_bot()
-    logger.info("Telegram bot starting")
-    bot.infinity_polling(skip_pending=True)
