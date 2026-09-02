@@ -23,7 +23,7 @@ def _get_or_create_user(telegram_id: int) -> User:
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.telegram_id == telegram_id))
         if not user:
-            user = User(telegram_id=telegram_id, language="en")
+            user = User(telegram_id=telegram_id, language="fa")
             db.add(user)
             db.commit()
             db.refresh(user)
@@ -50,11 +50,7 @@ def _installation(telegram_id: int) -> GitHubInstallation | None:
         user = db.scalar(select(User).where(User.telegram_id == telegram_id))
         if not user:
             return None
-        return db.scalar(
-            select(GitHubInstallation)
-            .where(GitHubInstallation.user_id == user.id, GitHubInstallation.active.is_(True))
-            .order_by(GitHubInstallation.updated_at.desc())
-        )
+        return db.scalar(select(GitHubInstallation).where(GitHubInstallation.user_id == user.id, GitHubInstallation.active.is_(True)).order_by(GitHubInstallation.updated_at.desc()))
 
 
 def _connect_markup(telegram_id: int, language: str) -> types.InlineKeyboardMarkup:
@@ -67,7 +63,6 @@ def _connect_markup(telegram_id: int, language: str) -> types.InlineKeyboardMark
 
 
 def _main_keyboard(language: str) -> types.ReplyKeyboardMarkup:
-    """Persistent graphical menu shown below the Telegram message box."""
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
         types.KeyboardButton("XAI Code Agent"),
@@ -81,18 +76,15 @@ def _main_keyboard(language: str) -> types.ReplyKeyboardMarkup:
 
 
 def _set_bot_commands(bot: TeleBot) -> None:
-    """Register the commands shown in Telegram's bot command menu."""
-    bot.set_my_commands(
-        [
-            types.BotCommand("start", "Start XAI Code Agent"),
-            types.BotCommand("connect", "Connect GitHub"),
-            types.BotCommand("repos", "List accessible repositories"),
-            types.BotCommand("task", "Create a code change and Draft PR"),
-            types.BotCommand("language", "Change language"),
-            types.BotCommand("disconnect", "Disconnect GitHub"),
-            types.BotCommand("help", "Show help"),
-        ]
-    )
+    bot.set_my_commands([
+        types.BotCommand("start", "Start XAI Code Agent"),
+        types.BotCommand("connect", "Connect GitHub"),
+        types.BotCommand("repos", "List accessible repositories"),
+        types.BotCommand("task", "Create a code change and Draft PR"),
+        types.BotCommand("language", "Change language"),
+        types.BotCommand("disconnect", "Disconnect GitHub"),
+        types.BotCommand("help", "Show help"),
+    ])
 
 
 def build_bot() -> TeleBot:
@@ -120,18 +112,19 @@ def build_bot() -> TeleBot:
 
     @bot.message_handler(commands=["help"])
     def help_command(message: Message) -> None:
-        language = _language(message.from_user.id) if message.from_user else "en"
+        language = _language(message.from_user.id) if message.from_user else "fa"
         bot.reply_to(message, t(language, "help"), reply_markup=_main_keyboard(language))
         if message.from_user:
             bot.send_message(message.chat.id, t(language, "connect_button_hint"), reply_markup=_connect_markup(message.from_user.id, language))
 
     @bot.message_handler(commands=["language"])
     def language_command(message: Message) -> None:
-        language = _language(message.from_user.id) if message.from_user else "en"
+        language = _language(message.from_user.id) if message.from_user else "fa"
         markup = types.InlineKeyboardMarkup()
-        markup.add(
+        markup.row(
             types.InlineKeyboardButton(t(language, "language_button_en"), callback_data="lang:en"),
             types.InlineKeyboardButton(t(language, "language_button_hi"), callback_data="lang:hi"),
+            types.InlineKeyboardButton(t(language, "language_button_fa"), callback_data="lang:fa"),
         )
         bot.reply_to(message, t(language, "choose_language"), reply_markup=markup)
 
@@ -140,12 +133,13 @@ def build_bot() -> TeleBot:
         if not call.from_user or not call.data:
             return
         language = call.data.split(":", 1)[1]
-        if language not in {"en", "hi"}:
+        if language not in {"en", "hi", "fa"}:
             bot.answer_callback_query(call.id, "Invalid language")
             return
         _set_language(call.from_user.id, language)
         bot.answer_callback_query(call.id)
-        bot.send_message(call.message.chat.id, t(language, "language_saved", language="English" if language == "en" else "हिन्दी"), reply_markup=_main_keyboard(language))
+        names = {"en": "English", "hi": "हिन्दी", "fa": "فارسی"}
+        bot.send_message(call.message.chat.id, t(language, "language_saved", language=names[language]), reply_markup=_main_keyboard(language))
 
     @bot.message_handler(commands=["connect"])
     def connect_command(message: Message) -> None:
@@ -198,27 +192,21 @@ def build_bot() -> TeleBot:
         if not installation:
             bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(message.from_user.id, language))
             return
-
         raw = message.text or ""
         payload = raw[len("/task"):].strip()
         if "|" not in payload:
             bot.reply_to(message, t(language, "task_format"), reply_markup=_main_keyboard(language))
             return
-
         repository, request = [part.strip() for part in payload.split("|", 1)]
         if repository.count("/") != 1 or len(request) < 3:
             bot.reply_to(message, t(language, "invalid_repo"), reply_markup=_main_keyboard(language))
             return
-
         bot.reply_to(message, t(language, "task_received"), reply_markup=_main_keyboard(language))
         try:
-            result = asyncio.run(
-                execute_task(settings.gemini_api_key, settings.gemini_model, repository, request, installation.installation_id, True)
-            )
+            result = asyncio.run(execute_task(settings.gemini_api_key, settings.gemini_model, repository, request, installation.installation_id, True))
             if result["status"] == "no_changes":
-                bot.reply_to(message, t(language, "no_changes", summary=result["summary"][:1500]))
+                bot.reply_to(message, t(language, "no_changes", summary=result["summary"][:1500]), reply_markup=_main_keyboard(language))
                 return
-
             pr = result.get("pull_request", {})
             pr_text = f"\nPR: {pr['url']}" if pr.get("url") else ""
             files = "\n".join(f"• {p}" for p in result.get("changes", []))
