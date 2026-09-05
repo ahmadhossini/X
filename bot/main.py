@@ -72,6 +72,8 @@ def _connect_markup(telegram_id: int, language: str) -> types.InlineKeyboardMark
         base_url = settings.public_base_url.rstrip("/")
         if not base_url:
             raise RuntimeError("PUBLIC_BASE_URL is not configured")
+        if not settings.github_app_slug:
+            raise RuntimeError("GITHUB_APP_SLUG is not configured")
         url = f"{base_url}/github/connect?state={state}"
         markup.add(types.InlineKeyboardButton(t(language, "connect_button"), url=url))
     except Exception:
@@ -101,6 +103,24 @@ def _language_markup() -> types.InlineKeyboardMarkup:
         types.InlineKeyboardButton("فارسی", callback_data="lang:fa"),
     )
     return markup
+
+
+def _set_bot_commands(bot: TeleBot) -> None:
+    """Set the default bot commands. Kept separate so build_bot can call it."""
+    try:
+        bot.set_my_commands(
+            [
+                types.BotCommand("start", "Start XAI Code Agent"),
+                types.BotCommand("connect", "Connect GitHub"),
+                types.BotCommand("repos", "List repositories"),
+                types.BotCommand("task", "Create a code change"),
+                types.BotCommand("language", "Change language"),
+                types.BotCommand("disconnect", "Disconnect GitHub"),
+                types.BotCommand("help", "Show help"),
+            ]
+        )
+    except Exception:
+        logger.exception("Failed to set default bot commands")
 
 
 def _set_user_commands(bot: TeleBot, user_id: int, language: str) -> None:
@@ -162,6 +182,13 @@ def build_bot() -> TeleBot:
                     reply_markup=_main_keyboard(language),
                 )
                 return
+            logger.error("GitHub connected callback received but no active installation for telegram_id=%s", user_id)
+            bot.reply_to(
+                message,
+                t(language, "github_setup_failed"),
+                reply_markup=_connect_markup(user_id, language),
+            )
+            return
         bot.reply_to(message, t(language, "welcome"), reply_markup=_main_keyboard(language), parse_mode="HTML")
 
     @bot.message_handler(commands=["help"])
@@ -196,9 +223,6 @@ def build_bot() -> TeleBot:
             _set_user_commands(bot, call.from_user.id, language)
             bot.answer_callback_query(call.id, t(language, "language_selected"))
 
-            # Update the language-selection message immediately, then send the
-            # localized welcome with the normal reply keyboard. This removes the
-            # need for the user to press /start again after choosing a language.
             if call.message:
                 try:
                     bot.edit_message_text(
@@ -318,54 +342,3 @@ def build_bot() -> TeleBot:
                 bot.reply_to(message, t(language, "no_changes", summary=result["summary"][:1500]), reply_markup=_main_keyboard(language))
                 return
             pr = result.get("pull_request", {})
-            pr_text = f"\nPR: {pr['url']}" if pr.get("url") else ""
-            files = "\n".join(f"• {p}" for p in result.get("changes", []))
-            reply = t(language, "changes_ready", summary=result.get("summary", ""), files=files, commit=result.get("commit", "")[:12], pr=pr_text)
-            bot.reply_to(message, reply[:4000], reply_markup=_main_keyboard(language))
-        except (AgentError, GitHubAppError, RuntimeError):
-            logger.exception("Agent task failed for repository=%s", repository)
-            bot.reply_to(message, t(language, "task_failed"), reply_markup=_main_keyboard(language))
-
-    @bot.message_handler(func=lambda message: bool(message.text))
-    def menu_buttons(message: Message) -> None:
-        if not message.from_user:
-            return
-        user_id = message.from_user.id
-        if not _language_selected(user_id):
-            bot.reply_to(message, _language_prompt(), reply_markup=_language_markup())
-            return
-        language = _language(user_id)
-        text = (message.text or "").strip()
-        if text == t(language, "connect_menu_button"):
-            bot.send_message(message.chat.id, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language))
-        elif text == t(language, "repos_menu_button"):
-            repositories(message)
-        elif text == t(language, "task_menu_button"):
-            bot.send_message(message.chat.id, t(language, "task_format"), reply_markup=_main_keyboard(language))
-        elif text == t(language, "language_menu_button"):
-            language_command(message)
-        elif text == t(language, "disconnect_menu_button"):
-            disconnect(message)
-        elif text == t(language, "brand_button"):
-            bot.send_message(message.chat.id, t(language, "menu_home"), reply_markup=_main_keyboard(language), parse_mode="HTML")
-
-    return bot
-
-
-def _set_bot_commands(bot: TeleBot) -> None:
-    bot.set_my_commands([
-        types.BotCommand("start", "Start XAI Code Agent"),
-        types.BotCommand("connect", "Connect GitHub"),
-        types.BotCommand("repos", "List accessible repositories"),
-        types.BotCommand("task", "Create a code change and Draft PR"),
-        types.BotCommand("language", "Change language"),
-        types.BotCommand("disconnect", "Disconnect GitHub"),
-        types.BotCommand("help", "Show help"),
-    ])
-
-
-def run_bot() -> None:
-    """Build the Telegram bot and keep long polling alive."""
-    bot = build_bot()
-    logger.info("Telegram bot polling started")
-    bot.infinity_polling(skip_pending=True)
