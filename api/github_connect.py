@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
@@ -15,6 +16,7 @@ from database.session import SessionLocal
 
 router = APIRouter(prefix="/github", tags=["github-connect"])
 STATE_TTL_MINUTES = 10
+logger = logging.getLogger(__name__)
 
 
 def _now() -> datetime:
@@ -38,6 +40,7 @@ def create_connect_state(telegram_id: int) -> str:
             )
         )
         db.commit()
+    logger.info("GitHub connect state created for telegram_id=%s", telegram_id)
     return token
 
 
@@ -83,14 +86,13 @@ def _public_connect_page() -> HTMLResponse:
 
 @router.get("/connect")
 def connect(state: str | None = Query(default=None, min_length=20, max_length=128)) -> Response:
-    # Public URL: show a landing page instead of exposing a state-validation error.
-    # Stateful URL: continue the per-Telegram-user GitHub App installation flow.
     if not state:
         return _public_connect_page()
 
     with SessionLocal() as db:
         valid = db.scalar(select(GitHubConnectState.id).where(GitHubConnectState.state == state))
         if not valid:
+            logger.warning("GitHub connect rejected invalid state")
             raise HTTPException(status_code=400, detail="Invalid connection state")
     return RedirectResponse(_github_install_url(state), status_code=302)
 
@@ -101,26 +103,40 @@ async def setup(
     state: str = Query(..., min_length=20, max_length=128),
     setup_action: str = Query(default="install"),
 ) -> Response:
+    logger.info("GitHub setup callback received: installation_id=%s setup_action=%s", installation_id, setup_action)
     with SessionLocal() as db:
         connect_state = db.scalar(select(GitHubConnectState).where(GitHubConnectState.state == state))
-        if not connect_state or connect_state.used_at is not None or _is_expired(connect_state.expires_at):
-            return HTMLResponse("GitHub connection state is invalid or expired.", status_code=400)
+        if not connect_state:
+            logger.warning("GitHub setup failed: state not found for installation_id=%s", installation_id)
+            return HTMLResponse("<h2>اتصال GitHub ناموفق بود</h2><p>نشست اتصال پیدا نشد. دوباره از داخل ربات گزینه «اتصال GitHub» را بزن.</p>", status_code=400)
+        if connect_state.used_at is not None:
+            logger.warning("GitHub setup failed: state already used for installation_id=%s", installation_id)
+            return HTMLResponse("<h2>این لینک قبلاً استفاده شده</h2><p>از داخل ربات یک اتصال جدید شروع کن.</p>", status_code=400)
+        if _is_expired(connect_state.expires_at):
+            logger.warning("GitHub setup failed: state expired for installation_id=%s", installation_id)
+            return HTMLResponse("<h2>نشست اتصال منقضی شده</h2><p>از داخل ربات دوباره اتصال GitHub را شروع کن.</p>", status_code=400)
 
-        connect_state.used_at = _now()
         if setup_action == "uninstall":
             db.query(GitHubInstallation).filter(GitHubInstallation.installation_id == installation_id).update({"active": False})
+            connect_state.used_at = _now()
             db.commit()
-            return HTMLResponse("GitHub connection was removed.", status_code=200)
+            logger.info("GitHub installation disabled: installation_id=%s", installation_id)
+            return HTMLResponse("<h2>اتصال GitHub حذف شد</h2><p>می‌توانی به تلگرام برگردی.</p>", status_code=200)
 
         try:
             installation = await github_app_get_installation(installation_id)
-        except GitHubAppError:
+        except GitHubAppError as exc:
+            logger.exception("GitHub setup verification failed: installation_id=%s error=%s", installation_id, exc)
             db.rollback()
-            return HTMLResponse("GitHub connection could not be verified.", status_code=502)
+            return HTMLResponse("<h2>تأیید اتصال GitHub ناموفق بود</h2><p>سرور نتوانست Installation را از GitHub تأیید کند. تنظیمات GitHub App و Railway را بررسی کن.</p>", status_code=502)
 
         account = installation.get("account") or {}
         github_user_id = account.get("id")
         github_login = account.get("login") or account.get("name") or "GitHub user"
+        if not github_user_id:
+            logger.error("GitHub setup returned no account id: installation_id=%s", installation_id)
+            db.rollback()
+            return HTMLResponse("<h2>اطلاعات حساب GitHub ناقص است</h2><p>GitHub اطلاعات حساب Installation را برنگرداند. اتصال را دوباره امتحان کن.</p>", status_code=502)
 
         user = db.scalar(select(User).where(User.telegram_id == connect_state.telegram_id))
         if not user:
@@ -146,8 +162,10 @@ async def setup(
                     active=True,
                 )
             )
+        connect_state.used_at = _now()
         db.commit()
+        logger.info("GitHub installation linked: installation_id=%s telegram_id=%s login=%s", installation_id, connect_state.telegram_id, github_login)
 
     if settings.bot_username:
         return RedirectResponse(f"https://t.me/{settings.bot_username}?start=github_connected", status_code=302)
-    return HTMLResponse("GitHub connected successfully. Return to Telegram.", status_code=200)
+    return HTMLResponse("<h2>GitHub با موفقیت متصل شد</h2><p>به تلگرام برگرد.</p>", status_code=200)
