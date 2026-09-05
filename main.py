@@ -9,6 +9,7 @@ import uvicorn
 
 from api.main import app
 from bot.main import run_bot
+from database.session import init_db
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -45,6 +46,11 @@ def shutdown_handler(signum, frame) -> None:
 if __name__ == "__main__":
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
+
+    # FastAPI's startup event runs only when Uvicorn starts serving. The bot
+    # thread can receive Telegram updates before that event fires, so initialize
+    # the shared database before starting either side of the application.
+    init_db()
 
     bot_thread = threading.Thread(
         target=start_bot,
