@@ -1,19 +1,33 @@
 services:
   - type: web
-    name: xai-master
+    name: xai-code-agent
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
     envVars:
       - key: BOT_TOKEN
         sync: false
+      - key: BOT_USERNAME
+        sync: false
       - key: GEMINI_API_KEY
         sync: false
-      - key: ADMIN_IDS
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GITHUB_APP_ID
         sync: false
-      - key: SPONSOR_CHANNEL
+      - key: GITHUB_APP_SLUG
+        sync: false
+      - key: GITHUB_APP_PRIVATE_KEY
+        sync: false
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
+      - key: GITHUB_CONNECT_SECRET
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: CODE_AGENT_API_KEY
+        sync: false
+      - key: TELEGRAM_ADMIN_IDS
         sync: false
       - key: DATABASE_URL
         sync: false
-      - key: MARKET_CACHE_SECONDS
-        value: "60"
