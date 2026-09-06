@@ -7,6 +7,7 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from code_agent.github_app import GitHubAppError, github_app_get_installation
 from core.config import settings
@@ -81,17 +82,32 @@ def _public_connect_page() -> HTMLResponse:
     return HTMLResponse(html, status_code=200)
 
 
+def _setup_error_page(title: str, detail: str) -> HTMLResponse:
+    safe_detail = detail.replace("<", "&lt;").replace(">", "&gt;")
+    telegram_url = f"https://t.me/{settings.bot_username}?start=connect_github" if settings.bot_username else "#"
+    html = f"""<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>XAI Code Agent — خطای اتصال</title>
+<style>body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#080b12;color:#f5f7fb;font-family:system-ui,sans-serif}}.card{{width:min(620px,100%);padding:32px;border:1px solid rgba(255,255,255,.12);border-radius:24px;background:rgba(255,255,255,.07);text-align:center}}h1{{margin-top:0}}.detail{{margin:22px 0;padding:16px;border-radius:14px;background:rgba(0,0,0,.25);color:#d6dbe5;direction:ltr;text-align:left;word-break:break-word}}a{{display:inline-block;padding:13px 22px;border-radius:14px;background:rgba(255,255,255,.14);color:white;text-decoration:none;font-weight:700}}</style></head>
+<body><main class="card"><h1>{title}</h1><p>اتصال GitHub در این مرحله ثبت نشد. نشست شما مصرف نشده است و می‌توانید دوباره تلاش کنید.</p><div class="detail">{safe_detail}</div><a href="{telegram_url}">بازگشت به Telegram و تلاش دوباره</a></main></body></html>"""
+    return HTMLResponse(html, status_code=502)
+
+
 @router.get("/connect")
 def connect(state: str | None = Query(default=None, min_length=20, max_length=128)) -> Response:
-    # Public URL: show a landing page instead of exposing a state-validation error.
-    # Stateful URL: continue the per-Telegram-user GitHub App installation flow.
     if not state:
         return _public_connect_page()
 
     with SessionLocal() as db:
-        valid = db.scalar(select(GitHubConnectState.id).where(GitHubConnectState.state == state))
+        valid = db.scalar(
+            select(GitHubConnectState.id).where(
+                GitHubConnectState.state == state,
+                GitHubConnectState.used_at.is_(None),
+                GitHubConnectState.expires_at > _now(),
+            )
+        )
         if not valid:
-            raise HTTPException(status_code=400, detail="Invalid connection state")
+            raise HTTPException(status_code=400, detail="Invalid or expired connection state")
     return RedirectResponse(_github_install_url(state), status_code=302)
 
 
@@ -102,52 +118,93 @@ async def setup(
     setup_action: str = Query(default="install"),
 ) -> Response:
     with SessionLocal() as db:
-        connect_state = db.scalar(select(GitHubConnectState).where(GitHubConnectState.state == state))
+        connect_state = db.scalar(
+            select(GitHubConnectState).where(GitHubConnectState.state == state)
+        )
         if not connect_state or connect_state.used_at is not None or _is_expired(connect_state.expires_at):
             return HTMLResponse("GitHub connection state is invalid or expired.", status_code=400)
 
-        connect_state.used_at = _now()
         if setup_action == "uninstall":
-            db.query(GitHubInstallation).filter(GitHubInstallation.installation_id == installation_id).update({"active": False})
+            db.query(GitHubInstallation).filter(
+                GitHubInstallation.installation_id == installation_id
+            ).update({"active": False})
+            connect_state.used_at = _now()
             db.commit()
             return HTMLResponse("GitHub connection was removed.", status_code=200)
 
+        if setup_action not in {"install", "update"}:
+            return _setup_error_page("عملیات GitHub نامعتبر است", f"setup_action={setup_action}")
+
+        # Verify the installation BEFORE consuming the one-time state.
+        # A temporary GitHub/API/database failure therefore does not strand the user.
         try:
             installation = await github_app_get_installation(installation_id)
-        except GitHubAppError:
-            db.rollback()
-            return HTMLResponse("GitHub connection could not be verified.", status_code=502)
+        except GitHubAppError as exc:
+            return _setup_error_page(
+                "تأیید اتصال GitHub ناموفق بود",
+                str(exc),
+            )
+        except Exception as exc:
+            return _setup_error_page(
+                "خطای غیرمنتظره در اتصال GitHub",
+                type(exc).__name__,
+            )
 
         account = installation.get("account") or {}
         github_user_id = account.get("id")
-        github_login = account.get("login") or account.get("name") or "GitHub user"
+        github_login = account.get("login") or account.get("name")
+        if not github_user_id or not github_login:
+            return _setup_error_page(
+                "اطلاعات حساب GitHub ناقص است",
+                "GitHub installation response did not contain account.id and account.login",
+            )
 
-        user = db.scalar(select(User).where(User.telegram_id == connect_state.telegram_id))
-        if not user:
-            user = User(telegram_id=connect_state.telegram_id, github_login=github_login)
-            db.add(user)
-            db.flush()
-        else:
-            user.github_login = github_login
-
-        existing = db.scalar(select(GitHubInstallation).where(GitHubInstallation.installation_id == installation_id))
-        if existing:
-            existing.user_id = user.id
-            existing.github_user_id = github_user_id
-            existing.github_login = github_login
-            existing.active = True
-        else:
-            db.add(
-                GitHubInstallation(
-                    user_id=user.id,
-                    installation_id=installation_id,
-                    github_user_id=github_user_id,
+        try:
+            user = db.scalar(select(User).where(User.telegram_id == connect_state.telegram_id))
+            if not user:
+                user = User(
+                    telegram_id=connect_state.telegram_id,
                     github_login=github_login,
-                    active=True,
+                )
+                db.add(user)
+                db.flush()
+            else:
+                user.github_login = github_login
+
+            existing = db.scalar(
+                select(GitHubInstallation).where(
+                    GitHubInstallation.installation_id == installation_id
                 )
             )
-        db.commit()
+            if existing:
+                existing.user_id = user.id
+                existing.github_user_id = github_user_id
+                existing.github_login = github_login
+                existing.active = True
+            else:
+                db.add(
+                    GitHubInstallation(
+                        user_id=user.id,
+                        installation_id=installation_id,
+                        github_user_id=github_user_id,
+                        github_login=github_login,
+                        active=True,
+                    )
+                )
+
+            # Consume the state only after both GitHub verification and DB writes are ready.
+            connect_state.used_at = _now()
+            db.commit()
+        except SQLAlchemyError:
+            db.rollback()
+            return _setup_error_page(
+                "ذخیره اتصال GitHub ناموفق بود",
+                "database_error",
+            )
 
     if settings.bot_username:
-        return RedirectResponse(f"https://t.me/{settings.bot_username}?start=github_connected", status_code=302)
+        return RedirectResponse(
+            f"https://t.me/{settings.bot_username}?start=github_connected",
+            status_code=302,
+        )
     return HTMLResponse("GitHub connected successfully. Return to Telegram.", status_code=200)
