@@ -79,11 +79,19 @@ CONTEXT:
 {json.dumps(context, ensure_ascii=False)}'''
     client = genai.Client(api_key=api_key)
     response = await client.aio.models.generate_content(model=model or "gemini-2.5-flash", contents=prompt)
-    text = (response.text or "").strip().replace("```json", "").replace("```", "").strip()
+    text = (response.text or "").strip()
+
+    # Robust JSON extraction: look for a JSON block, otherwise assume the whole text is JSON
+    match = re.search(r"(?:json)?\s*([\s\S]*?)\s*", text)
+    if match:
+        json_str = match.group(1)
+    else:
+        json_str = text
+
     try:
-        result = json.loads(text)
+        result = json.loads(json_str)
     except json.JSONDecodeError as exc:
-        raise AgentError("Gemini returned invalid JSON") from exc
+        raise AgentError("Gemini returned invalid JSON (or no JSON block found)") from exc
 
     if not isinstance(result, dict):
         raise AgentError("Invalid change plan")

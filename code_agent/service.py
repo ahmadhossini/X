@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import httpx
@@ -32,13 +33,21 @@ async def analyze_code(api_key: str, model: str, filename: str, content: str) ->
 Return ONLY JSON with keys summary, findings, suggestions.
 Do not invent errors or test results.
 Filename: {filename}
-Source:\n```\n{content}\n```'''
+Source:\n\n{content}\n'''
     response = await client.aio.models.generate_content(model=model, contents=prompt)
-    text = (response.text or "").strip().replace("```json", "").replace("```", "").strip()
+    text = (response.text or "").strip()
+
+    # Robust JSON extraction: look for a JSON block, otherwise assume the whole text is JSON
+    match = re.search(r"(?:json)?\s*([\s\S]*?)\s*", text)
+    if match:
+        json_str = match.group(1)
+    else:
+        json_str = text
+
     try:
-        data = json.loads(text)
+        data = json.loads(json_str)
     except json.JSONDecodeError as exc:
-        raise CodeAgentError("Gemini returned invalid JSON") from exc
+        raise CodeAgentError("Gemini returned invalid JSON (or no JSON block found)") from exc
     return {
         "summary": str(data.get("summary", "")),
         "findings": [str(x) for x in data.get("findings", [])],

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import concurrent.futures # Added for ThreadPoolExecutor
+import re # Imported for potential future robust JSON parsing, consistent with agent.py/service.py
 
 from sqlalchemy import select
 from telebot import TeleBot, types
@@ -20,6 +22,21 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_LANGUAGES = {"en", "hi", "fa"}
 LANGUAGE_NAMES = {"en": "English", "hi": "हिन्दी", "fa": "فارسی"}
+
+# Global executor for background tasks
+# max_workers is set to 5, which is a common default for CPU-bound tasks. 
+# For I/O-bound tasks like API calls, more workers could be used. 
+# This executor will be terminated when the main process exits, as the bot_thread is daemon.
+background_executor = concurrent.futures.ThreadPoolExecutor(max_workers=5)
+
+# Helper to run async functions in a new event loop on a background thread
+def _run_async_in_thread(func, *args, **kwargs):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(func(*args, **kwargs))
+    finally:
+        loop.close()
 
 
 def _get_or_create_user(telegram_id: int) -> User:
@@ -135,7 +152,7 @@ def build_bot() -> TeleBot:
         raise RuntimeError("BOT_TOKEN is not configured")
 
     bot = TeleBot(token)
-    _set_bot_commands(bot)
+    # Removed the global _set_bot_commands call. Commands will be set per user.
 
     @bot.message_handler(commands=["start"])
     def start(message: Message) -> None:
@@ -149,6 +166,8 @@ def build_bot() -> TeleBot:
             return
 
         language = _language(user_id)
+        _set_user_commands(bot, user_id, language) # Ensure commands are set for returning users
+
         if len(payload) > 1 and payload[1] == "connect_github":
             bot.reply_to(message, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language))
             return
@@ -277,17 +296,31 @@ def build_bot() -> TeleBot:
         if not installation:
             bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(user_id, language))
             return
-        try:
-            data = asyncio.run(github_app_get("/installation/repositories?per_page=100", installation.installation_id))
-            repos = data.get("repositories", [])
-            if not repos:
-                bot.reply_to(message, t(language, "repos_empty"), reply_markup=_main_keyboard(language))
-                return
-            lines = [f"• {repo.get('full_name')}" for repo in repos[:50] if repo.get("full_name")]
-            bot.reply_to(message, t(language, "repos_title") + "\n\n" + "\n".join(lines), reply_markup=_main_keyboard(language))
-        except GitHubAppError:
-            logger.exception("Failed to list GitHub repositories")
-            bot.reply_to(message, t(language, "github_error"), reply_markup=_main_keyboard(language))
+
+        # Acknowledge the request immediately to avoid blocking the bot
+        bot.reply_to(message, t(language, "task_received"), reply_markup=_main_keyboard(language)) # Reusing 'task_received' for a generic processing message
+
+        def _fetch_repos_and_reply(chat_id: int, user_id: int, installation_id: int, language: str):
+            try:
+                data = _run_async_in_thread(
+                    github_app_get, "/installation/repositories?per_page=100", installation_id
+                )
+                repos = data.get("repositories", [])
+                if not repos:
+                    bot.send_message(chat_id, t(language, "repos_empty"), reply_markup=_main_keyboard(language))
+                    return
+                lines = [f"• {repo.get('full_name')}" for repo in repos[:50] if repo.get("full_name")]
+                bot.send_message(chat_id, t(language, "repos_title") + "\n\n" + "\n".join(lines), reply_markup=_main_keyboard(language))
+            except GitHubAppError:
+                logger.exception("Failed to list GitHub repositories for telegram_id=%s", user_id)
+                bot.send_message(chat_id, t(language, "github_error"), reply_markup=_main_keyboard(language))
+            except Exception as e:
+                logger.exception("Unexpected error listing repositories for telegram_id=%s: %s", user_id, e)
+                bot.send_message(chat_id, t(language, "github_error"), reply_markup=_main_keyboard(language))
+
+        background_executor.submit(
+            _fetch_repos_and_reply, message.chat.id, user_id, installation.installation_id, language
+        )
 
     @bot.message_handler(commands=["task"])
     def task(message: Message) -> None:
@@ -312,19 +345,31 @@ def build_bot() -> TeleBot:
             bot.reply_to(message, t(language, "invalid_repo"), reply_markup=_main_keyboard(language))
             return
         bot.reply_to(message, t(language, "task_received"), reply_markup=_main_keyboard(language))
-        try:
-            result = asyncio.run(execute_task(settings.gemini_api_key, settings.gemini_model, repository, request, installation.installation_id, True))
-            if result["status"] == "no_changes":
-                bot.reply_to(message, t(language, "no_changes", summary=result["summary"][:1500]), reply_markup=_main_keyboard(language))
-                return
-            pr = result.get("pull_request", {})
-            pr_text = f"\nPR: {pr['url']}" if pr.get("url") else ""
-            files = "\n".join(f"• {p}" for p in result.get("changes", []))
-            reply = t(language, "changes_ready", summary=result.get("summary", ""), files=files, commit=result.get("commit", "")[:12], pr=pr_text)
-            bot.reply_to(message, reply[:4000], reply_markup=_main_keyboard(language))
-        except (AgentError, GitHubAppError, RuntimeError):
-            logger.exception("Agent task failed for repository=%s", repository)
-            bot.reply_to(message, t(language, "task_failed"), reply_markup=_main_keyboard(language))
+
+        def _run_task_and_reply(chat_id: int, api_key: str, model: str, repository: str, request: str, installation_id: int, language: str):
+            try:
+                result = _run_async_in_thread(
+                    execute_task, api_key, model, repository, request, installation_id, True
+                )
+                if result["status"] == "no_changes":
+                    bot.send_message(chat_id, t(language, "no_changes", summary=result["summary"][:1500]), reply_markup=_main_keyboard(language))
+                    return
+                pr = result.get("pull_request", {})
+                pr_text = f"\nPR: {pr['url']}" if pr.get("url") else ""
+                files = "\n".join(f"• {p}" for p in result.get("changes", []))
+                reply = t(language, "changes_ready", summary=result.get("summary", ""), files=files, commit=result.get("commit", "")[:12], pr=pr_text)
+                bot.send_message(chat_id, reply[:4000], reply_markup=_main_keyboard(language))
+            except (AgentError, GitHubAppError, RuntimeError) as e:
+                logger.exception("Agent task failed for repository=%s, error=%s", repository, e)
+                bot.send_message(chat_id, t(language, "task_failed"), reply_markup=_main_keyboard(language))
+            except Exception as e:
+                logger.exception("Unexpected error running task for repository=%s: %s", repository, e)
+                bot.send_message(chat_id, t(language, "task_failed"), reply_markup=_main_keyboard(language))
+
+        background_executor.submit(
+            _run_task_and_reply, message.chat.id, settings.gemini_api_key, settings.gemini_model, repository, request, installation.installation_id, language
+        )
+
 
     @bot.message_handler(func=lambda message: bool(message.text))
     def menu_buttons(message: Message) -> None:
@@ -351,21 +396,5 @@ def build_bot() -> TeleBot:
 
     return bot
 
-
-def _set_bot_commands(bot: TeleBot) -> None:
-    bot.set_my_commands([
-        types.BotCommand("start", "Start XAI Code Agent"),
-        types.BotCommand("connect", "Connect GitHub"),
-        types.BotCommand("repos", "List accessible repositories"),
-        types.BotCommand("task", "Create a code change and Draft PR"),
-        types.BotCommand("language", "Change language"),
-        types.BotCommand("disconnect", "Disconnect GitHub"),
-        types.BotCommand("help", "Show help"),
-    ])
-
-
-def run_bot() -> None:
-    """Build the Telegram bot and keep long polling alive."""
-    bot = build_bot()
-    logger.info("Telegram bot polling started")
-    bot.infinity_polling(skip_pending=True)
+# Removed the _set_bot_commands function and run_bot function.
+# build_bot now returns the bot instance directly, and polling is handled in main.py.
