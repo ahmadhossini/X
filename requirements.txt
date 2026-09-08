@@ -7,3 +7,4 @@ google-genai>=1.0,<2
 python-dotenv>=1.0,<2
 cryptography>=43,<50
 psycopg2-binary>=2.9,<3
+pytest>=8,<9
