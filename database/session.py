@@ -30,8 +30,12 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     inspector = inspect(engine)
-    if "users" in inspector.get_table_names():
-        columns = {column["name"] for column in inspector.get_columns("users")}
-        if "language" not in columns and settings.database_url.startswith("sqlite"):
-            with engine.begin() as connection:
-                connection.execute(text("ALTER TABLE users ADD COLUMN language VARCHAR(8) NOT NULL DEFAULT 'en'"))
+    if "users" not in inspector.get_table_names():
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("users")}
+    if "language" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE users ADD COLUMN language VARCHAR(8) NOT NULL DEFAULT 'en'")
+            )
