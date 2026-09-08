@@ -14,7 +14,7 @@ TEXTS = {
     "language_menu_button": "تغییر زبان",
     "disconnect_menu_button": "قطع اتصال GitHub",
     "connect_first": "برای استفاده از Code Agent ابتدا GitHub را متصل کنید.",
-    "github_connected": "<b>GitHub با موفقیت متصل شد.</b>\n\nحساب: {login}",
+    "github_connected": "<b>اتصال GitHub برقرار است.</b>\n\nحساب: {login}\n\nاکنون می‌توانید از Code Agent برای بررسی مخزن و انجام تغییرات کد استفاده کنید.",
     "github_disconnected": "اتصال GitHub حذف شد.",
     "github_not_connected": "هیچ اتصال فعالی به GitHub وجود ندارد.",
     "repos_empty": "هیچ مخزن قابل دسترسی پیدا نشد.",
