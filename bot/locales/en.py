@@ -14,7 +14,7 @@ TEXTS = {
     "language_menu_button": "Change Language",
     "disconnect_menu_button": "Disconnect GitHub",
     "connect_first": "Connect GitHub first to use the Code Agent.",
-    "github_connected": "<b>GitHub connected successfully.</b>\n\nAccount: {login}",
+    "github_connected": "<b>GitHub connection is active.</b>\n\nAccount: {login}\n\nYou can now use the Code Agent to inspect the repository and make code changes.",
     "github_disconnected": "GitHub connection removed.",
     "github_not_connected": "No active GitHub connection exists.",
     "repos_empty": "No accessible repositories were found.",
