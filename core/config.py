@@ -8,6 +8,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _positive_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(minimum, min(value, maximum))
+
+
 @dataclass(frozen=True)
 class Settings:
     bot_token: str = os.getenv("BOT_TOKEN", "")
@@ -27,6 +36,8 @@ class Settings:
         if value.strip().lstrip("-").isdigit()
     )
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./xai_master.db")
+    code_agent_workers: int = _positive_int("CODE_AGENT_WORKERS", 20, 2, 100)
+    code_agent_queue_size: int = _positive_int("CODE_AGENT_QUEUE_SIZE", 1000, 50, 10000)
 
 
 settings = Settings()

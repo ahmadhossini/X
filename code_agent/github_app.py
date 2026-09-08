@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import json
+import threading
 import time
 from typing import Any
 
@@ -15,6 +17,11 @@ class GitHubAppError(RuntimeError):
     pass
 
 
+_TOKEN_CACHE: dict[int, tuple[str, float]] = {}
+_TOKEN_CACHE_LOCK = threading.Lock()
+_TOKEN_CACHE_TTL = 45 * 60
+
+
 def _b64url(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
 
@@ -26,7 +33,12 @@ def app_jwt() -> str:
     private_key = serialization.load_pem_private_key(key, password=None)
     now = int(time.time())
     header = _b64url(b'{"alg":"RS256","typ":"JWT"}')
-    payload = _b64url((f'{{"iat":{now - 60},"exp":{now + 540},"iss":"{settings.github_app_id}"}}').encode())
+    payload = _b64url(
+        json.dumps(
+            {"iat": now - 60, "exp": now + 540, "iss": settings.github_app_id},
+            separators=(",", ":"),
+        ).encode()
+    )
     signing_input = f"{header}.{payload}".encode()
     signature = private_key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
     return f"{header}.{payload}.{_b64url(signature)}"
@@ -35,6 +47,13 @@ def app_jwt() -> str:
 async def installation_token(installation_id: int) -> str:
     if not installation_id:
         raise GitHubAppError("GitHub installation is not configured")
+
+    now = time.time()
+    with _TOKEN_CACHE_LOCK:
+        cached = _TOKEN_CACHE.get(installation_id)
+        if cached and cached[1] > now:
+            return cached[0]
+
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
@@ -47,7 +66,11 @@ async def installation_token(installation_id: int) -> str:
         )
     if response.is_error:
         raise GitHubAppError(f"GitHub App installation token failed: {response.status_code}")
-    return response.json()["token"]
+
+    token = response.json()["token"]
+    with _TOKEN_CACHE_LOCK:
+        _TOKEN_CACHE[installation_id] = (token, time.time() + _TOKEN_CACHE_TTL)
+    return token
 
 
 async def github_app_get(path: str, installation_id: int) -> Any:
