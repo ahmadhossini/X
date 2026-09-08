@@ -81,14 +81,12 @@ CONTEXT:
     response = await client.aio.models.generate_content(model=model or "gemini-2.5-flash", contents=prompt)
     text = (response.text or "").strip()
 
-    # Accept plain JSON as well as JSON wrapped in a markdown code fence.
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text, count=1, flags=re.IGNORECASE)
         text = re.sub(r"\s*```$", "", text, count=1).strip()
-    json_str = text
 
     try:
-        result = json.loads(json_str)
+        result = json.loads(text)
     except json.JSONDecodeError as exc:
         raise AgentError("Gemini returned invalid JSON") from exc
 
@@ -126,25 +124,49 @@ CONTEXT:
     return {"summary": summary, "changes": normalized}
 
 
-async def execute_task(api_key: str, model: str, repository: str, request: str, installation_id: int, create_pr: bool = True) -> dict[str, Any]:
+async def execute_task(
+    api_key: str,
+    model: str,
+    repository: str,
+    request: str,
+    installation_id: int,
+    create_pr: bool = True,
+) -> dict[str, Any]:
     repo = GitHubRepo(repository, installation_id)
-    metadata = await repo.repo()
-    base = metadata.get("default_branch", "main")
-    context = await build_context(repo, base)
-    plan = await plan_changes(api_key, model, request, context)
-    if not plan["changes"]:
-        return {"status": "no_changes", "summary": plan["summary"], "changes": []}
+    try:
+        metadata = await repo.repo()
+        base = metadata.get("default_branch", "main")
+        context = await build_context(repo, base)
+        plan = await plan_changes(api_key, model, request, context)
+        if not plan["changes"]:
+            return {"status": "no_changes", "summary": plan["summary"], "changes": []}
 
-    branch = _branch_name(request)
-    await repo.create_branch(branch, base)
-    sha = await repo.apply_changes(branch, plan["changes"], f"feat(agent): {plan['summary'][:60] or 'apply requested changes'}")
-    result: dict[str, Any] = {"status": "committed", "summary": plan["summary"], "changes": [c["path"] for c in plan["changes"]], "commit": sha, "branch": branch}
-    if create_pr:
-        pr = await repo.pull_request(
+        branch = _branch_name(request)
+        await repo.create_branch(branch, base)
+        sha = await repo.apply_changes(
             branch,
-            base,
-            f"XAI Agent: {plan['summary'][:70] or request[:70]}",
-            f"Automated coding-agent change.\n\nRequest: {request}\n\nSummary: {plan['summary']}",
+            plan["changes"],
+            f"feat(agent): {plan['summary'][:60] or 'apply requested changes'}",
         )
-        result["pull_request"] = {"number": pr.get("number"), "url": pr.get("html_url"), "draft": pr.get("draft", True)}
-    return result
+        result: dict[str, Any] = {
+            "status": "committed",
+            "summary": plan["summary"],
+            "changes": [c["path"] for c in plan["changes"]],
+            "commit": sha,
+            "branch": branch,
+        }
+        if create_pr:
+            pr = await repo.pull_request(
+                branch,
+                base,
+                f"XAI Agent: {plan['summary'][:70] or request[:70]}",
+                f"Automated coding-agent change.\n\nRequest: {request}\n\nSummary: {plan['summary']}",
+            )
+            result["pull_request"] = {
+                "number": pr.get("number"),
+                "url": pr.get("html_url"),
+                "draft": pr.get("draft", True),
+            }
+        return result
+    finally:
+        await repo.aclose()
