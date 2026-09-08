@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import base64
+import random
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -19,38 +23,71 @@ class GitHubRepo:
             raise GitHubRepoError("GitHub installation is required")
         self.full_name = full_name
         self.installation_id = installation_id
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(45.0, connect=10.0),
+                limits=httpx.Limits(max_connections=100, max_keepalive_connections=30),
+            )
+        return self._client
+
+    async def aclose(self) -> None:
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         try:
             token = await installation_token(self.installation_id)
         except GitHubAppError as exc:
             raise GitHubRepoError(str(exc)) from exc
+
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
             "Authorization": f"Bearer {token}",
         }
-        async with httpx.AsyncClient(timeout=45) as client:
-            response = await client.request(method, f"https://api.github.com/repos/{self.full_name}{path}", headers=headers, **kwargs)
-        if response.is_error:
-            raise GitHubRepoError(f"GitHub API {response.status_code}: {response.text[:500]}")
-        return response.json()
+        url = f"https://api.github.com/repos/{self.full_name}{path}"
+        client = await self._get_client()
+
+        last_error: Exception | None = None
+        for attempt in range(4):
+            try:
+                response = await client.request(method, url, headers=headers, **kwargs)
+                if response.status_code == 429 or response.status_code >= 500:
+                    if attempt < 3:
+                        retry_after = response.headers.get("Retry-After")
+                        delay = min(float(retry_after), 10.0) if retry_after else min(2 ** attempt, 8) + random.random()
+                        await asyncio.sleep(delay)
+                        continue
+                if response.is_error:
+                    raise GitHubRepoError(f"GitHub API {response.status_code}: {response.text[:500]}")
+                return response.json()
+            except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                last_error = exc
+                if attempt >= 3:
+                    break
+                await asyncio.sleep(min(2 ** attempt, 8) + random.random())
+
+        if last_error is not None:
+            raise GitHubRepoError(f"GitHub network error: {last_error}") from last_error
+        raise GitHubRepoError("GitHub request failed after retries")
 
     async def repo(self) -> dict[str, Any]:
         return await self._request("GET", "")
 
     async def commit(self, ref: str) -> dict[str, Any]:
-        return await self._request("GET", f"/commits/{ref}")
+        return await self._request("GET", f"/commits/{quote(ref, safe='')}")
 
     async def tree(self, ref: str) -> dict[str, Any]:
         commit = await self.commit(ref)
         return await self._request("GET", f"/git/trees/{commit['commit']['tree']['sha']}?recursive=1")
 
     async def file(self, path: str, ref: str) -> str:
-        data = await self._request("GET", f"/contents/{path}?ref={ref}")
+        data = await self._request("GET", f"/contents/{quote(path, safe='/')}?ref={quote(ref, safe='')}")
         if data.get("type") != "file":
             raise GitHubRepoError(f"{path} is not a file")
-        import base64
         return base64.b64decode(data["content"]).decode("utf-8")
 
     async def create_branch(self, name: str, base: str) -> None:
@@ -75,7 +112,7 @@ class GitHubRepo:
         new_commit = await self._request(
             "POST", "/git/commits", json={"message": message, "tree": tree["sha"], "parents": [head["sha"]]}
         )
-        await self._request("PATCH", f"/git/refs/heads/{branch}", json={"sha": new_commit["sha"], "force": False})
+        await self._request("PATCH", f"/git/refs/heads/{quote(branch, safe='/')}" , json={"sha": new_commit["sha"], "force": False})
         return new_commit["sha"]
 
     async def pull_request(self, branch: str, base: str, title: str, body: str) -> dict[str, Any]:
