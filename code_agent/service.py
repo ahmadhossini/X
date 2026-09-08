@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import httpx
@@ -32,11 +33,18 @@ async def analyze_code(api_key: str, model: str, filename: str, content: str) ->
 Return ONLY JSON with keys summary, findings, suggestions.
 Do not invent errors or test results.
 Filename: {filename}
-Source:\n```\n{content}\n```'''
+Source:\n\n{content}\n'''
     response = await client.aio.models.generate_content(model=model, contents=prompt)
-    text = (response.text or "").strip().replace("```json", "").replace("```", "").strip()
+    text = (response.text or "").strip()
+
+    # Accept plain JSON as well as JSON wrapped in a markdown code fence.
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, count=1, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text, count=1).strip()
+    json_str = text
+
     try:
-        data = json.loads(text)
+        data = json.loads(json_str)
     except json.JSONDecodeError as exc:
         raise CodeAgentError("Gemini returned invalid JSON") from exc
     return {

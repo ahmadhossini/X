@@ -79,9 +79,16 @@ CONTEXT:
 {json.dumps(context, ensure_ascii=False)}'''
     client = genai.Client(api_key=api_key)
     response = await client.aio.models.generate_content(model=model or "gemini-2.5-flash", contents=prompt)
-    text = (response.text or "").strip().replace("```json", "").replace("```", "").strip()
+    text = (response.text or "").strip()
+
+    # Accept plain JSON as well as JSON wrapped in a markdown code fence.
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text, count=1, flags=re.IGNORECASE)
+        text = re.sub(r"\s*```$", "", text, count=1).strip()
+    json_str = text
+
     try:
-        result = json.loads(text)
+        result = json.loads(json_str)
     except json.JSONDecodeError as exc:
         raise AgentError("Gemini returned invalid JSON") from exc
 

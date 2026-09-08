@@ -4,11 +4,13 @@ import logging
 import os
 import signal
 import threading
+import time
 
 import uvicorn
+from telebot import TeleBot
 
 from api.main import app
-from bot.main import run_bot
+from bot.main import build_bot
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,10 +18,11 @@ logger = logging.getLogger(__name__)
 _bot_running = False
 _stop_event = threading.Event()
 _bot_lock = threading.Lock()
+_telegram_bot: TeleBot | None = None  # Global instance for the bot
 
 
 def start_bot() -> None:
-    global _bot_running
+    global _bot_running, _telegram_bot
 
     with _bot_lock:
         if _bot_running:
@@ -29,7 +32,9 @@ def start_bot() -> None:
 
     try:
         logger.info("Telegram bot starting")
-        run_bot()
+        _telegram_bot = build_bot()  # Build the bot instance
+        logger.info("Telegram bot polling started")
+        _telegram_bot.infinity_polling(skip_pending=True)  # Start polling
     except Exception:
         logger.exception("Telegram bot stopped")
         raise
@@ -38,8 +43,16 @@ def start_bot() -> None:
 
 
 def shutdown_handler(signum, frame) -> None:
+    global _telegram_bot
     logger.info("Shutdown signal received: %s", signum)
     _stop_event.set()
+    if _telegram_bot:
+        logger.info("Stopping Telegram bot...")
+        _telegram_bot.stop_bot()  # Stop the bot gracefully
+        # Give a small moment for the bot to finish pending operations
+        time.sleep(2)
+    else:
+        logger.warning("Telegram bot instance not found for graceful shutdown.")
 
 
 if __name__ == "__main__":
