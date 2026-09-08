@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import threading
 import time
 from typing import Any
@@ -32,7 +33,12 @@ def app_jwt() -> str:
     private_key = serialization.load_pem_private_key(key, password=None)
     now = int(time.time())
     header = _b64url(b'{"alg":"RS256","typ":"JWT"}')
-    payload = _b64url((f'{"iat":{now - 60},"exp":{now + 540},"iss":"{settings.github_app_id}"}').encode())
+    payload = _b64url(
+        json.dumps(
+            {"iat": now - 60, "exp": now + 540, "iss": settings.github_app_id},
+            separators=(",", ":"),
+        ).encode()
+    )
     signing_input = f"{header}.{payload}".encode()
     signature = private_key.sign(signing_input, padding.PKCS1v15(), hashes.SHA256())
     return f"{header}.{payload}.{_b64url(signature)}"
