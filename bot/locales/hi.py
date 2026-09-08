@@ -14,7 +14,7 @@ TEXTS = {
     "language_menu_button": "भाषा बदलें",
     "disconnect_menu_button": "GitHub से संबंध हटाएँ",
     "connect_first": "Code Agent का उपयोग करने से पहले GitHub जोड़ें।",
-    "github_connected": "<b>GitHub सफलतापूर्वक जुड़ गया।</b>\n\nखाता: {login}",
+    "github_connected": "<b>GitHub कनेक्शन सक्रिय है।</b>\n\nखाता: {login}\n\nअब आप Code Agent का उपयोग करके भंडार की जाँच और कोड में बदलाव कर सकते हैं।",
     "github_disconnected": "GitHub का संबंध हटा दिया गया है।",
     "github_not_connected": "कोई सक्रिय GitHub कनेक्शन नहीं है।",
     "repos_empty": "कोई सुलभ भंडार नहीं मिला।",
