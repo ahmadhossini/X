@@ -51,6 +51,12 @@ def _request_language(request: str) -> str:
     return "English"
 
 
+def _output_language(request: str, language: str | None = None) -> str:
+    """Prefer the user's selected Telegram language, falling back to request detection."""
+    selected = {"fa": "Persian (Farsi)", "hi": "Hindi", "en": "English"}.get((language or "").lower())
+    return selected or _request_language(request)
+
+
 async def build_context(repo: GitHubRepo, ref: str, limit: int = 40) -> dict[str, str]:
     tree = await repo.tree(ref)
     files = [
@@ -75,10 +81,16 @@ async def build_context(repo: GitHubRepo, ref: str, limit: int = 40) -> dict[str
     return context
 
 
-async def plan_changes(api_key: str, model: str, request: str, context: dict[str, str]) -> dict[str, Any]:
+async def plan_changes(
+    api_key: str,
+    model: str,
+    request: str,
+    context: dict[str, str],
+    language: str | None = None,
+) -> dict[str, Any]:
     if not api_key:
         raise AgentError("GEMINI_API_KEY is not configured")
-    output_language = _request_language(request)
+    output_language = _output_language(request, language)
     prompt = f'''You are XAI Code Agent. Work as a careful senior engineer.
 User request: {request}
 Repository context follows as JSON mapping file paths to source text.
@@ -143,13 +155,14 @@ async def execute_task(
     request: str,
     installation_id: int,
     create_pr: bool = True,
+    language: str | None = None,
 ) -> dict[str, Any]:
     repo = GitHubRepo(repository, installation_id)
     try:
         metadata = await repo.repo()
         base = metadata.get("default_branch", "main")
         context = await build_context(repo, base)
-        plan = await plan_changes(api_key, model, request, context)
+        plan = await plan_changes(api_key, model, request, context, language)
         if not plan["changes"]:
             return {"status": "no_changes", "summary": plan["summary"], "changes": []}
 
