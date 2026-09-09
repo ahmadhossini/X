@@ -8,6 +8,7 @@ from typing import Any
 
 from google import genai
 
+from billing.metering import usage_from_response
 from code_agent.github import GitHubRepo
 
 
@@ -145,7 +146,11 @@ CONTEXT:
             raise AgentError(f"Generated file is too large: {path}")
         normalized.append({"path": path, "action": action, "content": content})
         seen.add(path)
-    return {"summary": summary, "changes": normalized}
+    return {
+        "summary": summary,
+        "changes": normalized,
+        "token_usage": usage_from_response(response),
+    }
 
 
 async def execute_task(
@@ -163,8 +168,14 @@ async def execute_task(
         base = metadata.get("default_branch", "main")
         context = await build_context(repo, base)
         plan = await plan_changes(api_key, model, request, context, language)
+        usage = plan.get("token_usage")
+        usage_dict = {
+            "input_tokens": usage.input_tokens if usage else 0,
+            "output_tokens": usage.output_tokens if usage else 0,
+            "total_tokens": usage.normalized_total if usage else 0,
+        }
         if not plan["changes"]:
-            return {"status": "no_changes", "summary": plan["summary"], "changes": []}
+            return {"status": "no_changes", "summary": plan["summary"], "changes": [], "token_usage": usage_dict}
 
         branch = _branch_name(request)
         await repo.create_branch(branch, base)
@@ -179,6 +190,7 @@ async def execute_task(
             "changes": [c["path"] for c in plan["changes"]],
             "commit": sha,
             "branch": branch,
+            "token_usage": usage_dict,
         }
         if create_pr:
             pr = await repo.pull_request(
