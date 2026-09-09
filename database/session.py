@@ -30,25 +30,33 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     inspector = inspect(engine)
-    if "users" not in inspector.get_table_names():
+    tables = set(inspector.get_table_names())
+    if "users" not in tables:
         return
 
-    columns = {column["name"] for column in inspector.get_columns("users")}
+    user_columns = {column["name"] for column in inspector.get_columns("users")}
     reset_type = "DATETIME" if _is_sqlite else "TIMESTAMP WITH TIME ZONE"
     with engine.begin() as connection:
-        if "language" not in columns:
-            connection.execute(
-                text("ALTER TABLE users ADD COLUMN language VARCHAR(8) NOT NULL DEFAULT 'en'")
-            )
-        if "plan" not in columns:
-            connection.execute(
-                text("ALTER TABLE users ADD COLUMN plan VARCHAR(16) NOT NULL DEFAULT 'free'")
-            )
-        if "credits" not in columns:
-            connection.execute(
-                text("ALTER TABLE users ADD COLUMN credits INTEGER NOT NULL DEFAULT 5")
-            )
-        if "credits_reset_at" not in columns:
-            connection.execute(
-                text(f"ALTER TABLE users ADD COLUMN credits_reset_at {reset_type} NULL")
-            )
+        if "language" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN language VARCHAR(8) NOT NULL DEFAULT 'en'"))
+        if "plan" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN plan VARCHAR(16) NOT NULL DEFAULT 'free'"))
+        if "credits" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN credits INTEGER NOT NULL DEFAULT 5"))
+        if "credits_reset_at" not in user_columns:
+            connection.execute(text(f"ALTER TABLE users ADD COLUMN credits_reset_at {reset_type} NULL"))
+
+    # create_all handles new tables, but existing usage_records tables need explicit columns.
+    inspector = inspect(engine)
+    if "usage_records" not in inspector.get_table_names():
+        return
+    usage_columns = {column["name"] for column in inspector.get_columns("usage_records")}
+    with engine.begin() as connection:
+        if "input_tokens" not in usage_columns:
+            connection.execute(text("ALTER TABLE usage_records ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0"))
+        if "output_tokens" not in usage_columns:
+            connection.execute(text("ALTER TABLE usage_records ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0"))
+        if "total_tokens" not in usage_columns:
+            connection.execute(text("ALTER TABLE usage_records ADD COLUMN total_tokens INTEGER NOT NULL DEFAULT 0"))
+        if "api_cost_usd" not in usage_columns:
+            connection.execute(text("ALTER TABLE usage_records ADD COLUMN api_cost_usd FLOAT NOT NULL DEFAULT 0"))

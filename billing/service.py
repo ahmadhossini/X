@@ -6,6 +6,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
+from billing.metering import TokenUsage, consume_last_usage, gemini_flash_cost
 from database.models import UsageRecord, User
 from database.session import SessionLocal
 
@@ -88,6 +89,10 @@ def reserve_task_credits(telegram_id: int, repository: str, request: str, credit
             model="",
             credits_reserved=credits,
             credits_used=0,
+            input_tokens=0,
+            output_tokens=0,
+            total_tokens=0,
+            api_cost_usd=0.0,
             status="reserved",
         )
         db.add(usage)
@@ -95,26 +100,54 @@ def reserve_task_credits(telegram_id: int, repository: str, request: str, credit
         return CreditReservation(task_id=task_id, credits=credits, remaining=user.credits)
 
 
-def complete_task(task_id: str, model: str, credits_used: int | None = None) -> None:
+def _apply_token_usage(usage: UsageRecord, model: str, token_usage: TokenUsage | None) -> None:
+    if not token_usage:
+        return
+    usage.input_tokens = token_usage.input_tokens
+    usage.output_tokens = token_usage.output_tokens
+    usage.total_tokens = token_usage.normalized_total
+    usage.api_cost_usd = gemini_flash_cost(token_usage).total_usd if model.startswith("gemini-2.5-flash") else 0.0
+
+
+def complete_task(
+    task_id: str,
+    model: str,
+    credits_used: int | None = None,
+    token_usage: TokenUsage | None = None,
+) -> None:
     with SessionLocal() as db:
         usage = db.scalar(select(UsageRecord).where(UsageRecord.task_id == task_id))
         if not usage or usage.status != "reserved":
             raise BillingError("Usage record is not reservable")
+        token_usage = token_usage or consume_last_usage()
+        used = usage.credits_reserved if credits_used is None else max(0, min(credits_used, usage.credits_reserved))
+        if used < usage.credits_reserved:
+            user = db.get(User, usage.user_id)
+            if user:
+                user.credits += usage.credits_reserved - used
         usage.model = model[:255]
-        usage.credits_used = usage.credits_reserved if credits_used is None else max(0, credits_used)
+        usage.credits_used = used
+        _apply_token_usage(usage, model, token_usage)
         usage.status = "completed"
         db.commit()
 
 
-def fail_task(task_id: str, model: str, reason: str = "failed") -> None:
+def fail_task(
+    task_id: str,
+    model: str,
+    reason: str = "failed",
+    token_usage: TokenUsage | None = None,
+) -> None:
     with SessionLocal() as db:
         usage = db.scalar(select(UsageRecord).where(UsageRecord.task_id == task_id))
         if not usage or usage.status != "reserved":
             return
+        token_usage = token_usage or consume_last_usage()
         user = db.get(User, usage.user_id)
         if user:
             user.credits += usage.credits_reserved
         usage.model = model[:255]
         usage.credits_used = 0
+        _apply_token_usage(usage, model, token_usage)
         usage.status = reason[:32]
         db.commit()
