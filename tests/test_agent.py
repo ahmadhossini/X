@@ -1,4 +1,4 @@
-from code_agent.agent import _branch_name, _safe_path
+from code_agent.agent import _branch_name, _output_language, _safe_path
 
 
 def test_safe_path_rejects_traversal_and_protected_files():
@@ -20,3 +20,10 @@ def test_branch_name_is_unique_and_contains_request_digest():
     assert first != second
     assert first != other
     assert len(first.rsplit("-", 1)[-1]) == 6
+
+
+def test_output_language_prefers_selected_telegram_language():
+    assert _output_language("fix this code", "fa") == "Persian (Farsi)"
+    assert _output_language("این کد را درست کن", "en") == "English"
+    assert _output_language("fix this code", "hi") == "Hindi"
+    assert _output_language("این کد را درست کن") == "Persian (Farsi)"
