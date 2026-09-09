@@ -37,6 +37,17 @@ class GitHubRepo:
         if self._client is not None and not self._client.is_closed:
             await self._client.aclose()
 
+    @staticmethod
+    def _retry_delay(response: httpx.Response | None, attempt: int) -> float:
+        if response is not None:
+            value = response.headers.get("Retry-After")
+            if value:
+                try:
+                    return min(max(float(value), 0.0), 10.0)
+                except (TypeError, ValueError):
+                    pass
+        return min(2**attempt, 8) + random.random()
+
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         try:
             token = await installation_token(self.installation_id)
@@ -53,13 +64,12 @@ class GitHubRepo:
 
         last_error: Exception | None = None
         for attempt in range(4):
+            response: httpx.Response | None = None
             try:
                 response = await client.request(method, url, headers=headers, **kwargs)
                 if response.status_code == 429 or response.status_code >= 500:
                     if attempt < 3:
-                        retry_after = response.headers.get("Retry-After")
-                        delay = min(float(retry_after), 10.0) if retry_after else min(2 ** attempt, 8) + random.random()
-                        await asyncio.sleep(delay)
+                        await asyncio.sleep(self._retry_delay(response, attempt))
                         continue
                 if response.is_error:
                     raise GitHubRepoError(f"GitHub API {response.status_code}: {response.text[:500]}")
@@ -68,7 +78,7 @@ class GitHubRepo:
                 last_error = exc
                 if attempt >= 3:
                     break
-                await asyncio.sleep(min(2 ** attempt, 8) + random.random())
+                await asyncio.sleep(self._retry_delay(response, attempt))
 
         if last_error is not None:
             raise GitHubRepoError(f"GitHub network error: {last_error}") from last_error
@@ -88,7 +98,10 @@ class GitHubRepo:
         data = await self._request("GET", f"/contents/{quote(path, safe='/')}?ref={quote(ref, safe='')}")
         if data.get("type") != "file":
             raise GitHubRepoError(f"{path} is not a file")
-        return base64.b64decode(data["content"]).decode("utf-8")
+        try:
+            return base64.b64decode(data["content"], validate=True).decode("utf-8")
+        except (KeyError, ValueError, UnicodeDecodeError) as exc:
+            raise GitHubRepoError(f"Unable to decode GitHub file: {path}") from exc
 
     async def create_branch(self, name: str, base: str) -> None:
         source = await self.commit(base)
@@ -112,8 +125,14 @@ class GitHubRepo:
         new_commit = await self._request(
             "POST", "/git/commits", json={"message": message, "tree": tree["sha"], "parents": [head["sha"]]}
         )
-        await self._request("PATCH", f"/git/refs/heads/{quote(branch, safe='/')}" , json={"sha": new_commit["sha"], "force": False})
+        await self._request(
+            "PATCH",
+            f"/git/refs/heads/{quote(branch, safe='/')}",
+            json={"sha": new_commit["sha"], "force": False},
+        )
         return new_commit["sha"]
 
     async def pull_request(self, branch: str, base: str, title: str, body: str) -> dict[str, Any]:
-        return await self._request("POST", "/pulls", json={"title": title, "body": body, "head": branch, "base": base, "draft": True})
+        return await self._request(
+            "POST", "/pulls", json={"title": title, "body": body, "head": branch, "base": base, "draft": True}
+        )

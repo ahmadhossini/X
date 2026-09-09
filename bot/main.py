@@ -33,6 +33,8 @@ _task_slots = threading.BoundedSemaphore(
 )
 _user_tasks: set[int] = set()
 _user_tasks_lock = threading.Lock()
+_executor_shutdown = False
+_executor_shutdown_lock = threading.Lock()
 
 _BUSY_TEXT = {
     "en": "The task queue is busy. Please try again shortly.",
@@ -44,6 +46,17 @@ _ALREADY_RUNNING_TEXT = {
     "hi": "आपका एक कार्य पहले से चल रहा है। कृपया उसके समाप्त होने तक प्रतीक्षा करें।",
     "fa": "یک کار برای شما در حال اجراست. لطفاً تا پایان آن صبر کنید.",
 }
+
+
+def shutdown_background_executor() -> None:
+    """Stop accepting queued jobs during process shutdown and cancel jobs not yet running."""
+    global _executor_shutdown
+    with _executor_shutdown_lock:
+        if _executor_shutdown:
+            return
+        _executor_shutdown = True
+    logger.info("Shutting down background executor")
+    background_executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _run_async_in_thread(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -58,6 +71,10 @@ def _run_async_in_thread(func: Callable[..., Any], *args: Any, **kwargs: Any) ->
 
 def _submit_background(user_id: int, func: Callable[..., Any], *args: Any) -> bool:
     """Submit a bounded background job and enforce one expensive job per user."""
+    with _executor_shutdown_lock:
+        if _executor_shutdown:
+            return False
+
     if not _task_slots.acquire(blocking=False):
         return False
 
@@ -205,7 +222,7 @@ def build_bot() -> TeleBot:
     if not token:
         raise RuntimeError("BOT_TOKEN is not configured")
 
-    bot = TeleBot(token)
+    bot = TeleBot(token, num_threads=min(max(settings.code_agent_workers, 4), 12))
 
     @bot.message_handler(commands=["start"])
     def start(message: Message) -> None:
@@ -390,7 +407,7 @@ def build_bot() -> TeleBot:
 
         def _run_task_and_reply(chat_id: int, api_key: str, model: str, repo: str, req: str, installation_id: int, lang: str) -> None:
             try:
-                result = _run_async_in_thread(execute_task, api_key, model, repo, req, installation_id, True)
+                result = _run_async_in_thread(execute_task, api_key, model, repo, req, installation_id, True, lang)
                 if result["status"] == "no_changes":
                     bot.send_message(
                         chat_id,

@@ -42,6 +42,21 @@ def _branch_name(request: str) -> str:
     return f"xai-agent/{slug}-{digest}-{unique}"
 
 
+def _request_language(request: str) -> str:
+    """Infer the natural language used in the user's request for AI-generated summaries."""
+    if re.search(r"[\u0600-\u06ff]", request):
+        return "Persian (Farsi)"
+    if re.search(r"[\u0900-\u097f]", request):
+        return "Hindi"
+    return "English"
+
+
+def _output_language(request: str, language: str | None = None) -> str:
+    """Prefer the user's selected Telegram language, falling back to request detection."""
+    selected = {"fa": "Persian (Farsi)", "hi": "Hindi", "en": "English"}.get((language or "").lower())
+    return selected or _request_language(request)
+
+
 async def build_context(repo: GitHubRepo, ref: str, limit: int = 40) -> dict[str, str]:
     tree = await repo.tree(ref)
     files = [
@@ -66,12 +81,21 @@ async def build_context(repo: GitHubRepo, ref: str, limit: int = 40) -> dict[str
     return context
 
 
-async def plan_changes(api_key: str, model: str, request: str, context: dict[str, str]) -> dict[str, Any]:
+async def plan_changes(
+    api_key: str,
+    model: str,
+    request: str,
+    context: dict[str, str],
+    language: str | None = None,
+) -> dict[str, Any]:
     if not api_key:
         raise AgentError("GEMINI_API_KEY is not configured")
+    output_language = _output_language(request, language)
     prompt = f'''You are XAI Code Agent. Work as a careful senior engineer.
 User request: {request}
 Repository context follows as JSON mapping file paths to source text.
+Output language: {output_language}.
+The "summary" MUST be written entirely in the output language. Do not switch to English or another natural language in the summary. Keep code identifiers, filenames, repository names, commands, and unavoidable technical names unchanged when necessary.
 Return ONLY valid JSON with this shape:
 {{"summary":"...","changes":[{{"path":"...","action":"create|modify|delete","content":"full file content for create/modify"}}]}}
 Rules: only propose concrete source changes needed for the request; never invent test results; preserve unrelated code; use full replacement content; max 8 changed files; never touch .git, secrets, credentials, private keys, or CI workflow files. Delete only when explicitly required by the user request. If no safe change is possible, return an empty changes array.
@@ -81,14 +105,12 @@ CONTEXT:
     response = await client.aio.models.generate_content(model=model or "gemini-2.5-flash", contents=prompt)
     text = (response.text or "").strip()
 
-    # Accept plain JSON as well as JSON wrapped in a markdown code fence.
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text, count=1, flags=re.IGNORECASE)
         text = re.sub(r"\s*```$", "", text, count=1).strip()
-    json_str = text
 
     try:
-        result = json.loads(json_str)
+        result = json.loads(text)
     except json.JSONDecodeError as exc:
         raise AgentError("Gemini returned invalid JSON") from exc
 
@@ -126,25 +148,50 @@ CONTEXT:
     return {"summary": summary, "changes": normalized}
 
 
-async def execute_task(api_key: str, model: str, repository: str, request: str, installation_id: int, create_pr: bool = True) -> dict[str, Any]:
+async def execute_task(
+    api_key: str,
+    model: str,
+    repository: str,
+    request: str,
+    installation_id: int,
+    create_pr: bool = True,
+    language: str | None = None,
+) -> dict[str, Any]:
     repo = GitHubRepo(repository, installation_id)
-    metadata = await repo.repo()
-    base = metadata.get("default_branch", "main")
-    context = await build_context(repo, base)
-    plan = await plan_changes(api_key, model, request, context)
-    if not plan["changes"]:
-        return {"status": "no_changes", "summary": plan["summary"], "changes": []}
+    try:
+        metadata = await repo.repo()
+        base = metadata.get("default_branch", "main")
+        context = await build_context(repo, base)
+        plan = await plan_changes(api_key, model, request, context, language)
+        if not plan["changes"]:
+            return {"status": "no_changes", "summary": plan["summary"], "changes": []}
 
-    branch = _branch_name(request)
-    await repo.create_branch(branch, base)
-    sha = await repo.apply_changes(branch, plan["changes"], f"feat(agent): {plan['summary'][:60] or 'apply requested changes'}")
-    result: dict[str, Any] = {"status": "committed", "summary": plan["summary"], "changes": [c["path"] for c in plan["changes"]], "commit": sha, "branch": branch}
-    if create_pr:
-        pr = await repo.pull_request(
+        branch = _branch_name(request)
+        await repo.create_branch(branch, base)
+        sha = await repo.apply_changes(
             branch,
-            base,
-            f"XAI Agent: {plan['summary'][:70] or request[:70]}",
-            f"Automated coding-agent change.\n\nRequest: {request}\n\nSummary: {plan['summary']}",
+            plan["changes"],
+            f"feat(agent): {plan['summary'][:60] or 'apply requested changes'}",
         )
-        result["pull_request"] = {"number": pr.get("number"), "url": pr.get("html_url"), "draft": pr.get("draft", True)}
-    return result
+        result: dict[str, Any] = {
+            "status": "committed",
+            "summary": plan["summary"],
+            "changes": [c["path"] for c in plan["changes"]],
+            "commit": sha,
+            "branch": branch,
+        }
+        if create_pr:
+            pr = await repo.pull_request(
+                branch,
+                base,
+                f"XAI Agent: {plan['summary'][:70] or request[:70]}",
+                f"Automated coding-agent change.\n\nRequest: {request}\n\nSummary: {plan['summary']}",
+            )
+            result["pull_request"] = {
+                "number": pr.get("number"),
+                "url": pr.get("html_url"),
+                "draft": pr.get("draft", True),
+            }
+        return result
+    finally:
+        await repo.aclose()
