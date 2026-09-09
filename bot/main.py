@@ -390,7 +390,7 @@ def build_bot() -> TeleBot:
 
         def _run_task_and_reply(chat_id: int, api_key: str, model: str, repo: str, req: str, installation_id: int, lang: str) -> None:
             try:
-                result = _run_async_in_thread(execute_task, api_key, model, repo, req, installation_id, True)
+                result = _run_async_in_thread(execute_task, api_key, model, repo, req, installation_id, True, lang)
                 if result["status"] == "no_changes":
                     bot.send_message(
                         chat_id,
