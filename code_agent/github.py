@@ -8,7 +8,7 @@ from urllib.parse import quote
 
 import httpx
 
-from code_agent.github_app import GitHubAppError, installation_token
+from code_agent.github_app import GitHubAppError, installation_token, invalidate_installation_token
 
 
 class GitHubRepoError(RuntimeError):
@@ -49,40 +49,48 @@ class GitHubRepo:
         return min(2**attempt, 8) + random.random()
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
-        try:
-            token = await installation_token(self.installation_id)
-        except GitHubAppError as exc:
-            raise GitHubRepoError(str(exc)) from exc
-
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "Authorization": f"Bearer {token}",
-        }
-        url = f"https://api.github.com/repos/{self.full_name}{path}"
-        client = await self._get_client()
-
         last_error: Exception | None = None
-        for attempt in range(4):
-            response: httpx.Response | None = None
+        for token_attempt in range(2):
             try:
-                response = await client.request(method, url, headers=headers, **kwargs)
-                if response.status_code == 429 or response.status_code >= 500:
-                    if attempt < 3:
-                        await asyncio.sleep(self._retry_delay(response, attempt))
-                        continue
-                if response.is_error:
-                    raise GitHubRepoError(f"GitHub API {response.status_code}: {response.text[:500]}")
-                return response.json()
-            except (httpx.TimeoutException, httpx.NetworkError) as exc:
-                last_error = exc
-                if attempt >= 3:
-                    break
-                await asyncio.sleep(self._retry_delay(response, attempt))
+                token = await installation_token(self.installation_id, force_refresh=token_attempt == 1)
+            except GitHubAppError as exc:
+                raise GitHubRepoError(str(exc)) from exc
+
+            headers = {
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "Authorization": f"Bearer {token}",
+            }
+            url = f"https://api.github.com/repos/{self.full_name}{path}"
+            client = await self._get_client()
+
+            for attempt in range(4):
+                response: httpx.Response | None = None
+                try:
+                    response = await client.request(method, url, headers=headers, **kwargs)
+                    if response.status_code == 401 and token_attempt == 0:
+                        invalidate_installation_token(self.installation_id)
+                        break
+                    if response.status_code == 429 or response.status_code >= 500:
+                        if attempt < 3:
+                            await asyncio.sleep(self._retry_delay(response, attempt))
+                            continue
+                    if response.is_error:
+                        detail = response.text[:500].replace("\n", " ")
+                        raise GitHubRepoError(f"GitHub API {response.status_code}: {detail}")
+                    return response.json()
+                except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                    last_error = exc
+                    if attempt >= 3:
+                        break
+                    await asyncio.sleep(self._retry_delay(response, attempt))
+
+            if last_error is not None and token_attempt == 1:
+                raise GitHubRepoError(f"GitHub network error: {last_error}") from last_error
 
         if last_error is not None:
             raise GitHubRepoError(f"GitHub network error: {last_error}") from last_error
-        raise GitHubRepoError("GitHub request failed after retries")
+        raise GitHubRepoError("GitHub authentication failed after token refresh")
 
     async def repo(self) -> dict[str, Any]:
         return await self._request("GET", "")
