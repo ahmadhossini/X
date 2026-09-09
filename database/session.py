@@ -34,6 +34,7 @@ def init_db() -> None:
         return
 
     columns = {column["name"] for column in inspector.get_columns("users")}
+    reset_type = "DATETIME" if _is_sqlite else "TIMESTAMP WITH TIME ZONE"
     with engine.begin() as connection:
         if "language" not in columns:
             connection.execute(
@@ -49,5 +50,5 @@ def init_db() -> None:
             )
         if "credits_reset_at" not in columns:
             connection.execute(
-                text("ALTER TABLE users ADD COLUMN credits_reset_at DATETIME NULL")
+                text(f"ALTER TABLE users ADD COLUMN credits_reset_at {reset_type} NULL")
             )
