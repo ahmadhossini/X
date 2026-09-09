@@ -42,6 +42,15 @@ def _branch_name(request: str) -> str:
     return f"xai-agent/{slug}-{digest}-{unique}"
 
 
+def _request_language(request: str) -> str:
+    """Infer the natural language used in the user's request for AI-generated summaries."""
+    if re.search(r"[\u0600-\u06ff]", request):
+        return "Persian (Farsi)"
+    if re.search(r"[\u0900-\u097f]", request):
+        return "Hindi"
+    return "English"
+
+
 async def build_context(repo: GitHubRepo, ref: str, limit: int = 40) -> dict[str, str]:
     tree = await repo.tree(ref)
     files = [
@@ -69,9 +78,12 @@ async def build_context(repo: GitHubRepo, ref: str, limit: int = 40) -> dict[str
 async def plan_changes(api_key: str, model: str, request: str, context: dict[str, str]) -> dict[str, Any]:
     if not api_key:
         raise AgentError("GEMINI_API_KEY is not configured")
+    output_language = _request_language(request)
     prompt = f'''You are XAI Code Agent. Work as a careful senior engineer.
 User request: {request}
 Repository context follows as JSON mapping file paths to source text.
+Output language: {output_language}.
+The "summary" MUST be written entirely in the output language. Do not switch to English or another natural language in the summary. Keep code identifiers, filenames, repository names, commands, and unavoidable technical names unchanged when necessary.
 Return ONLY valid JSON with this shape:
 {{"summary":"...","changes":[{{"path":"...","action":"create|modify|delete","content":"full file content for create/modify"}}]}}
 Rules: only propose concrete source changes needed for the request; never invent test results; preserve unrelated code; use full replacement content; max 8 changed files; never touch .git, secrets, credentials, private keys, or CI workflow files. Delete only when explicitly required by the user request. If no safe change is possible, return an empty changes array.
