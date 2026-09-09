@@ -19,6 +19,9 @@ class User(Base):
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
     github_login: Mapped[str | None] = mapped_column(String(255), nullable=True)
     language: Mapped[str] = mapped_column(String(8), default="en", nullable=False)
+    plan: Mapped[str] = mapped_column(String(16), default="free", nullable=False, index=True)
+    credits: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    credits_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -56,3 +59,18 @@ class Repository(Base):
     default_branch: Mapped[str] = mapped_column(String(255), default="main")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class UsageRecord(Base):
+    __tablename__ = "usage_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    repository: Mapped[str] = mapped_column(String(255), index=True)
+    request: Mapped[str] = mapped_column(String(4000))
+    model: Mapped[str] = mapped_column(String(255), default="")
+    credits_reserved: Mapped[int] = mapped_column(Integer, nullable=False)
+    credits_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
