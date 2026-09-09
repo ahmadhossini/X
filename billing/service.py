@@ -53,18 +53,14 @@ def ensure_user_credit_state(telegram_id: int) -> tuple[int, str]:
 
 
 def estimate_task_credits(request: str) -> int:
+    """Estimate conservatively because /task can modify repository files."""
     text = request.lower()
     heavy_terms = (
         "bug", "debug", "error", "exception", "failing", "broken", "crash",
         "باگ", "خطا", "ارور", "خرابی", "رفع مشکل", "دیباگ",
     )
-    analysis_terms = (
-        "analyze", "analyse", "review", "audit", "بررسی", "تحلیل", "بازبینی",
-    )
     if any(term in text for term in heavy_terms):
         return 10
-    if any(term in text for term in analysis_terms):
-        return 3
     return 5
 
 
