@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 
 # Gemini 2.5 Flash standard pricing, USD per 1M tokens.
 GEMINI_FLASH_INPUT_USD_PER_1M = 0.30
 GEMINI_FLASH_OUTPUT_USD_PER_1M = 2.50
+
+_usage_local = threading.local()
 
 
 @dataclass(frozen=True)
@@ -40,10 +43,12 @@ def gemini_flash_cost(usage: TokenUsage) -> ApiCost:
 
 
 def usage_from_response(response: object) -> TokenUsage:
-    """Read Google GenAI usage metadata without coupling the billing layer to SDK types."""
+    """Read Google GenAI usage metadata and keep it available to the current task thread."""
     metadata = getattr(response, "usage_metadata", None)
     if metadata is None:
-        return TokenUsage()
+        usage = TokenUsage()
+        _usage_local.last_usage = usage
+        return usage
 
     def _count(*names: str) -> int:
         for name in names:
@@ -55,4 +60,14 @@ def usage_from_response(response: object) -> TokenUsage:
     input_tokens = _count("prompt_token_count", "prompt_tokens_details")
     output_tokens = _count("candidates_token_count")
     total_tokens = _count("total_token_count")
-    return TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens, total_tokens=total_tokens)
+    usage = TokenUsage(input_tokens=input_tokens, output_tokens=output_tokens, total_tokens=total_tokens)
+    _usage_local.last_usage = usage
+    return usage
+
+
+def consume_last_usage() -> TokenUsage | None:
+    """Return and clear usage captured by the current worker thread."""
+    usage = getattr(_usage_local, "last_usage", None)
+    if hasattr(_usage_local, "last_usage"):
+        del _usage_local.last_usage
+    return usage
