@@ -8,6 +8,7 @@ from typing import Any
 
 from google import genai
 
+from billing.metering import usage_from_response
 from code_agent.github import GitHubRepo
 
 
@@ -43,7 +44,6 @@ def _branch_name(request: str) -> str:
 
 
 def _request_language(request: str) -> str:
-    """Infer the natural language used in the user's request for AI-generated summaries."""
     if re.search(r"[\u0600-\u06ff]", request):
         return "Persian (Farsi)"
     if re.search(r"[\u0900-\u097f]", request):
@@ -52,7 +52,6 @@ def _request_language(request: str) -> str:
 
 
 def _output_language(request: str, language: str | None = None) -> str:
-    """Prefer the user's selected Telegram language, falling back to request detection."""
     selected = {"fa": "Persian (Farsi)", "hi": "Hindi", "en": "English"}.get((language or "").lower())
     return selected or _request_language(request)
 
@@ -81,13 +80,7 @@ async def build_context(repo: GitHubRepo, ref: str, limit: int = 40) -> dict[str
     return context
 
 
-async def plan_changes(
-    api_key: str,
-    model: str,
-    request: str,
-    context: dict[str, str],
-    language: str | None = None,
-) -> dict[str, Any]:
+async def plan_changes(api_key: str, model: str, request: str, context: dict[str, str], language: str | None = None) -> dict[str, Any]:
     if not api_key:
         raise AgentError("GEMINI_API_KEY is not configured")
     output_language = _output_language(request, language)
@@ -104,23 +97,19 @@ CONTEXT:
     client = genai.Client(api_key=api_key)
     response = await client.aio.models.generate_content(model=model or "gemini-2.5-flash", contents=prompt)
     text = (response.text or "").strip()
-
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text, count=1, flags=re.IGNORECASE)
         text = re.sub(r"\s*```$", "", text, count=1).strip()
-
     try:
         result = json.loads(text)
     except json.JSONDecodeError as exc:
         raise AgentError("Gemini returned invalid JSON") from exc
-
     if not isinstance(result, dict):
         raise AgentError("Invalid change plan")
     summary = str(result.get("summary", "")).strip()
     changes = result.get("changes", [])
     if not isinstance(changes, list) or len(changes) > MAX_CHANGED_FILES:
         raise AgentError("Invalid change plan")
-
     normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
     for change in changes:
@@ -145,53 +134,27 @@ CONTEXT:
             raise AgentError(f"Generated file is too large: {path}")
         normalized.append({"path": path, "action": action, "content": content})
         seen.add(path)
-    return {"summary": summary, "changes": normalized}
+    return {"summary": summary, "changes": normalized, "token_usage": usage_from_response(response)}
 
 
-async def execute_task(
-    api_key: str,
-    model: str,
-    repository: str,
-    request: str,
-    installation_id: int,
-    create_pr: bool = True,
-    language: str | None = None,
-) -> dict[str, Any]:
+async def execute_task(api_key: str, model: str, repository: str, request: str, installation_id: int, create_pr: bool = True, language: str | None = None) -> dict[str, Any]:
     repo = GitHubRepo(repository, installation_id)
     try:
         metadata = await repo.repo()
         base = metadata.get("default_branch", "main")
         context = await build_context(repo, base)
         plan = await plan_changes(api_key, model, request, context, language)
+        usage = plan.get("token_usage")
+        usage_dict = {"input_tokens": usage.input_tokens if usage else 0, "output_tokens": usage.output_tokens if usage else 0, "total_tokens": usage.normalized_total if usage else 0}
         if not plan["changes"]:
-            return {"status": "no_changes", "summary": plan["summary"], "changes": []}
-
+            return {"status": "no_changes", "summary": plan["summary"], "changes": [], "token_usage": usage_dict}
         branch = _branch_name(request)
         await repo.create_branch(branch, base)
-        sha = await repo.apply_changes(
-            branch,
-            plan["changes"],
-            f"feat(agent): {plan['summary'][:60] or 'apply requested changes'}",
-        )
-        result: dict[str, Any] = {
-            "status": "committed",
-            "summary": plan["summary"],
-            "changes": [c["path"] for c in plan["changes"]],
-            "commit": sha,
-            "branch": branch,
-        }
+        sha = await repo.apply_changes(branch, plan["changes"], f"feat(agent): {plan['summary'][:60] or 'apply requested changes'}")
+        result: dict[str, Any] = {"status": "committed", "summary": plan["summary"], "changes": [c["path"] for c in plan["changes"]], "commit": sha, "branch": branch, "token_usage": usage_dict}
         if create_pr:
-            pr = await repo.pull_request(
-                branch,
-                base,
-                f"XAI Agent: {plan['summary'][:70] or request[:70]}",
-                f"Automated coding-agent change.\n\nRequest: {request}\n\nSummary: {plan['summary']}",
-            )
-            result["pull_request"] = {
-                "number": pr.get("number"),
-                "url": pr.get("html_url"),
-                "draft": pr.get("draft", True),
-            }
+            pr = await repo.pull_request(branch, base, f"XAI Agent: {plan['summary'][:70] or request[:70]}", f"Automated coding-agent change.\n\nRequest: {request}\n\nSummary: {plan['summary']}")
+            result["pull_request"] = {"number": pr.get("number"), "url": pr.get("html_url"), "draft": pr.get("draft", True)}
         return result
     finally:
         await repo.aclose()
