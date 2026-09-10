@@ -78,7 +78,7 @@ _PUBLIC_CONNECT_PAGE = """<!doctype html>
 
 def _public_connect_page() -> HTMLResponse:
     telegram_url = f"https://t.me/{settings.bot_username}?start=connect_github" if settings.bot_username else "#"
-    html = _PUBLIC_CONNECT_PAGE.format(telegram_url=telegram_url)
+    html = _PUBLIC_CONNECT_PAGE.replace("{telegram_url}", telegram_url)
     return HTMLResponse(html, status_code=200)
 
 
