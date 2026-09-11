@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import time
 from typing import Any
 
 from google import genai
@@ -35,15 +34,14 @@ def _safe_path(path: str) -> bool:
     return True
 
 
-def _branch_name(request: str) -> str:
+def _branch_name(request: str, task_id: str | None = None) -> str:
     slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", request.lower()).strip("-")[:45].rstrip("-") or "change"
     digest = hashlib.sha256(request.encode("utf-8")).hexdigest()[:8]
-    unique = hashlib.sha1(str(time.time_ns()).encode()).hexdigest()[:6]
-    return f"xai-agent/{slug}-{digest}-{unique}"
+    suffix = hashlib.sha256((task_id or request).encode("utf-8")).hexdigest()[:12]
+    return f"xai-agent/{slug}-{digest}-{suffix}"
 
 
 def _request_language(request: str) -> str:
-    """Infer the natural language used in the user's request for AI-generated summaries."""
     if re.search(r"[\u0600-\u06ff]", request):
         return "Persian (Farsi)"
     if re.search(r"[\u0900-\u097f]", request):
@@ -52,7 +50,6 @@ def _request_language(request: str) -> str:
 
 
 def _output_language(request: str, language: str | None = None) -> str:
-    """Prefer the user's selected Telegram language, falling back to request detection."""
     selected = {"fa": "Persian (Farsi)", "hi": "Hindi", "en": "English"}.get((language or "").lower())
     return selected or _request_language(request)
 
@@ -156,8 +153,10 @@ async def execute_task(
     installation_id: int,
     create_pr: bool = True,
     language: str | None = None,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     repo = GitHubRepo(repository, installation_id)
+    marker = f"XAI-TASK:{task_id}" if task_id else None
     try:
         metadata = await repo.repo()
         base = metadata.get("default_branch", "main")
@@ -166,13 +165,12 @@ async def execute_task(
         if not plan["changes"]:
             return {"status": "no_changes", "summary": plan["summary"], "changes": []}
 
-        branch = _branch_name(request)
+        branch = _branch_name(request, task_id)
         await repo.create_branch(branch, base)
-        sha = await repo.apply_changes(
-            branch,
-            plan["changes"],
-            f"feat(agent): {plan['summary'][:60] or 'apply requested changes'}",
-        )
+        commit_message = f"feat(agent): {plan['summary'][:60] or 'apply requested changes'}"
+        if marker:
+            commit_message = f"{commit_message} [{marker}]"
+        sha = await repo.apply_changes(branch, plan["changes"], commit_message, idempotency_marker=marker)
         result: dict[str, Any] = {
             "status": "committed",
             "summary": plan["summary"],
