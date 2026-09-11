@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
-from database.models import Task, UsageRecord, User
+from database.models import GitHubInstallation, Task, UsageRecord, User
 from database.session import SessionLocal
 
 FREE_DAILY_CREDITS = 5
@@ -70,16 +70,37 @@ def reserve_task_credits(
     request: str,
     credits: int,
     *,
-    installation_id: int,
+    installation_id: int | None = None,
     model: str = "",
 ) -> CreditReservation:
-    if credits <= 0 or not installation_id:
+    if credits <= 0:
         raise BillingError("Invalid task reservation")
 
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
         if not user:
             raise BillingError("User not found")
+
+        installation = None
+        if installation_id:
+            installation = db.scalar(
+                select(GitHubInstallation).where(
+                    GitHubInstallation.id == installation_id,
+                    GitHubInstallation.user_id == user.id,
+                    GitHubInstallation.active.is_(True),
+                )
+            )
+        else:
+            installation = db.scalar(
+                select(GitHubInstallation)
+                .where(
+                    GitHubInstallation.user_id == user.id,
+                    GitHubInstallation.active.is_(True),
+                )
+                .order_by(GitHubInstallation.updated_at.desc())
+            )
+        if not installation:
+            raise BillingError("GitHub not connected")
 
         now = _now()
         _daily_reset_if_needed(user, now)
@@ -92,7 +113,7 @@ def reserve_task_credits(
         task = Task(
             id=task_id,
             user_id=user.id,
-            installation_id=installation_id,
+            installation_id=installation.installation_id,
             repository=repository,
             request=request[:4000],
             model=model[:255],
