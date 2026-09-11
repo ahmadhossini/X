@@ -21,6 +21,7 @@ TEXTS = {
     "repos_title": "<b>Your accessible repositories:</b>",
     "task_received": "Request received. Analyzing the repository and preparing changes...",
     "task_received_with_cost": "Request received. Estimated cost: {credits} credits. Remaining balance: {remaining} credits.",
+    "task_already_running": "You already have an active task. Please wait for it to finish before creating another task.",
     "task_format": "Format:\n/task owner/repo | request",
     "invalid_repo": "The repository or request is invalid.",
     "no_changes": "No safe change was identified.\n{summary}",
