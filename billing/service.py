@@ -108,9 +108,11 @@ def reserve_task_credits(
 
         installation = None
         if installation_id:
+            # The task layer stores GitHub's installation_id, not the database
+            # primary key of GitHubInstallation. Always scope it to the owner.
             installation = db.scalar(
                 select(GitHubInstallation).where(
-                    GitHubInstallation.id == installation_id,
+                    GitHubInstallation.installation_id == installation_id,
                     GitHubInstallation.user_id == user.id,
                     GitHubInstallation.active.is_(True),
                 )
