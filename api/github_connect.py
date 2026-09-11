@@ -172,8 +172,12 @@ async def setup(
                     GitHubInstallation.installation_id == installation_id
                 )
             )
+            if existing and existing.user_id != user.id:
+                return _setup_error_page(
+                    "این اتصال GitHub قبلاً به کاربر دیگری تعلق دارد",
+                    "installation_ownership_conflict",
+                )
             if existing:
-                existing.user_id = user.id
                 existing.github_user_id = github_user_id
                 existing.github_login = github_login
                 existing.active = True
