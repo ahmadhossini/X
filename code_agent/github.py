@@ -33,10 +33,7 @@ class GitHubRepo:
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(45.0, connect=10.0),
-                limits=httpx.Limits(max_connections=100, max_keepalive_connections=30),
-            )
+            self._client = httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0), limits=httpx.Limits(max_connections=100, max_keepalive_connections=30))
         return self._client
 
     async def aclose(self) -> None:
@@ -61,15 +58,9 @@ class GitHubRepo:
                 token = await installation_token(self.installation_id, force_refresh=token_attempt == 1)
             except GitHubAppError as exc:
                 raise GitHubRepoError(str(exc)) from exc
-
-            headers = {
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "Authorization": f"Bearer {token}",
-            }
+            headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "Authorization": f"Bearer {token}"}
             url = f"https://api.github.com/repos/{self.full_name}{path}"
             client = await self._get_client()
-
             for attempt in range(4):
                 response: httpx.Response | None = None
                 try:
@@ -90,10 +81,8 @@ class GitHubRepo:
                     if attempt >= 3:
                         break
                     await asyncio.sleep(self._retry_delay(response, attempt))
-
             if last_error is not None and token_attempt == 1:
                 raise GitHubRepoError(f"GitHub network error: {last_error}") from last_error
-
         if last_error is not None:
             raise GitHubRepoError(f"GitHub network error: {last_error}") from last_error
         raise GitHubRepoError("GitHub authentication failed after token refresh")
@@ -103,22 +92,14 @@ class GitHubRepo:
             return
         try:
             for page in range(1, 11):
-                data = await github_app_get(
-                    f"/installation/repositories?per_page=100&page={page}",
-                    self.installation_id,
-                )
+                data = await github_app_get(f"/installation/repositories?per_page=100&page={page}", self.installation_id)
                 if not isinstance(data, dict):
                     raise GitHubRepoError("Invalid GitHub installation repository response")
                 repositories = data.get("repositories")
                 if not isinstance(repositories, list):
                     raise GitHubRepoError("Invalid GitHub installation repository response")
                 target = self.full_name.casefold()
-                if any(
-                    isinstance(item, dict)
-                    and isinstance(item.get("full_name"), str)
-                    and item["full_name"].casefold() == target
-                    for item in repositories
-                ):
+                if any(isinstance(item, dict) and isinstance(item.get("full_name"), str) and item["full_name"].casefold() == target for item in repositories):
                     self._authorized = True
                     return
                 if len(repositories) < 100:
@@ -150,11 +131,21 @@ class GitHubRepo:
     async def create_branch(self, name: str, base: str) -> None:
         await self._authorize_repository()
         source = await self.commit(base)
-        await self._request("POST", "/git/refs", json={"ref": f"refs/heads/{name}", "sha": source["sha"]})
+        try:
+            await self._request("POST", "/git/refs", json={"ref": f"refs/heads/{name}", "sha": source["sha"]})
+        except GitHubRepoError as exc:
+            if "GitHub API 422" not in str(exc):
+                raise
+            existing = await self._request("GET", f"/git/ref/heads/{quote(name, safe='/')}")
+            if not isinstance(existing, dict) or not ((existing.get("object") or {}).get("sha")):
+                raise
 
-    async def apply_changes(self, branch: str, changes: list[dict[str, Any]], message: str) -> str:
+    async def apply_changes(self, branch: str, changes: list[dict[str, Any]], message: str, idempotency_marker: str | None = None) -> str:
         await self._authorize_repository()
         head = await self.commit(branch)
+        head_message = ((head.get("commit") or {}).get("message") or "") if isinstance(head, dict) else ""
+        if idempotency_marker and idempotency_marker in head_message:
+            return head["sha"]
         base_tree = head["commit"]["tree"]["sha"]
         tree_entries: list[dict[str, Any]] = []
         for change in changes:
@@ -168,18 +159,16 @@ class GitHubRepo:
                 raise GitHubRepoError(f"Missing content for {path}")
             tree_entries.append({"path": path, "mode": "100644", "type": "blob", "content": content})
         tree = await self._request("POST", "/git/trees", json={"base_tree": base_tree, "tree": tree_entries})
-        new_commit = await self._request(
-            "POST", "/git/commits", json={"message": message, "tree": tree["sha"], "parents": [head["sha"]]}
-        )
-        await self._request(
-            "PATCH",
-            f"/git/refs/heads/{quote(branch, safe='/')}",
-            json={"sha": new_commit["sha"], "force": False},
-        )
+        new_commit = await self._request("POST", "/git/commits", json={"message": message, "tree": tree["sha"], "parents": [head["sha"]]})
+        await self._request("PATCH", f"/git/refs/heads/{quote(branch, safe='/')}", json={"sha": new_commit["sha"], "force": False})
         return new_commit["sha"]
 
     async def pull_request(self, branch: str, base: str, title: str, body: str) -> dict[str, Any]:
         await self._authorize_repository()
-        return await self._request(
-            "POST", "/pulls", json={"title": title, "body": body, "head": branch, "base": base, "draft": True}
-        )
+        owner = self.full_name.split("/", 1)[0]
+        existing = await self._request("GET", f"/pulls?state=open&head={quote(owner + ':' + branch, safe='')}&base={quote(base, safe='')}&per_page=10")
+        if isinstance(existing, list) and existing:
+            candidate = existing[0]
+            if isinstance(candidate, dict) and candidate.get("number"):
+                return candidate
+        return await self._request("POST", "/pulls", json={"title": title, "body": body, "head": branch, "base": base, "draft": True})
