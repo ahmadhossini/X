@@ -17,6 +17,16 @@ PLAN_LIMITS = {
     "pro_plus": 2000,
 }
 
+ACTIVE_TASK_STATUSES = (
+    "queued",
+    "running",
+    "planning",
+    "branch_created",
+    "committed",
+    "pr_created",
+    "changes_applied",
+)
+
 
 class BillingError(RuntimeError):
     pass
@@ -72,14 +82,29 @@ def reserve_task_credits(
     *,
     installation_id: int | None = None,
     model: str = "",
+    chat_id: int | None = None,
+    language: str = "en",
 ) -> CreditReservation:
     if credits <= 0:
         raise BillingError("Invalid task reservation")
 
     with SessionLocal() as db:
+        # Lock the user row first. This serializes reservations from multiple
+        # Telegram updates/processes for the same user.
         user = db.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
         if not user:
             raise BillingError("User not found")
+
+        active_task = db.scalar(
+            select(Task.id)
+            .where(
+                Task.user_id == user.id,
+                Task.status.in_(ACTIVE_TASK_STATUSES),
+            )
+            .limit(1)
+        )
+        if active_task:
+            raise BillingError("Active task already exists")
 
         installation = None
         if installation_id:
@@ -118,6 +143,8 @@ def reserve_task_credits(
             request=request[:4000],
             model=model[:255],
             status="queued",
+            chat_id=chat_id,
+            language=language[:8] or "en",
         )
         usage = UsageRecord(
             task_id=task_id,
@@ -136,6 +163,17 @@ def reserve_task_credits(
 
 
 def transition_task(task_id: str, from_status: str, to_status: str, **fields: object) -> bool:
+    allowed = {
+        "queued": {"running", "failed", "cancelled"},
+        "running": {"planning", "branch_created", "changes_applied", "failed", "cancelled"},
+        "planning": {"branch_created", "failed", "cancelled"},
+        "branch_created": {"committed", "failed", "cancelled"},
+        "committed": {"pr_created", "failed", "cancelled"},
+        "pr_created": {"completed", "failed", "cancelled"},
+        "changes_applied": {"completed", "failed", "cancelled"},
+    }
+    if to_status not in allowed.get(from_status, set()):
+        return False
     with SessionLocal() as db:
         task = db.scalar(select(Task).where(Task.id == task_id).with_for_update())
         if not task or task.status != from_status:
@@ -153,11 +191,15 @@ def transition_task(task_id: str, from_status: str, to_status: str, **fields: ob
 def complete_task(task_id: str, model: str, credits_used: int | None = None) -> None:
     with SessionLocal() as db:
         usage = db.scalar(select(UsageRecord).where(UsageRecord.task_id == task_id).with_for_update())
-        if not usage or usage.status != "reserved":
-            raise BillingError("Usage record is not reservable")
+        if not usage:
+            raise BillingError("Usage record is missing")
         task = db.scalar(select(Task).where(Task.id == task_id).with_for_update())
         if not task:
             raise BillingError("Task record is missing")
+        if usage.status != "reserved":
+            if usage.status == "completed":
+                return
+            raise BillingError("Usage record is not reservable")
         usage.model = model[:255]
         usage.credits_used = usage.credits_reserved if credits_used is None else max(0, credits_used)
         usage.status = "completed"
