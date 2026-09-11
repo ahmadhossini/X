@@ -160,7 +160,20 @@ class GitHubRepo:
             tree_entries.append({"path": path, "mode": "100644", "type": "blob", "content": content})
         tree = await self._request("POST", "/git/trees", json={"base_tree": base_tree, "tree": tree_entries})
         new_commit = await self._request("POST", "/git/commits", json={"message": message, "tree": tree["sha"], "parents": [head["sha"]]})
-        await self._request("PATCH", f"/git/refs/heads/{quote(branch, safe='/')}", json={"sha": new_commit["sha"], "force": False})
+        ref_path = f"/git/refs/heads/{quote(branch, safe='/')}"
+        ref_payload = {"sha": new_commit["sha"], "force": False}
+        try:
+            await self._request("PATCH", ref_path, json=ref_payload)
+        except GitHubRepoError as first_error:
+            # Updating a branch to a known commit is idempotent. A timeout or
+            # transient failure can happen after GitHub accepted the first
+            # PATCH, so retry the exact same ref update before declaring the
+            # task failed. force=False still prevents overwriting unrelated
+            # commits.
+            try:
+                await self._request("PATCH", ref_path, json=ref_payload)
+            except GitHubRepoError:
+                raise first_error
         return new_commit["sha"]
 
     async def pull_request(self, branch: str, base: str, title: str, body: str) -> dict[str, Any]:
