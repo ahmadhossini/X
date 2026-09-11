@@ -4,10 +4,11 @@ import asyncio
 import logging
 import os
 import socket
+import threading
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from telebot import TeleBot
 
 from billing.service import complete_task, fail_task, transition_task
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 # Do not automatically retry a task after it may have performed GitHub writes.
 # Without idempotent branch/commit/PR reconciliation, a retry can create duplicate changes.
 CLAIM_LEASE_SECONDS = 60 * 60
+HEARTBEAT_SECONDS = 30.0
 POLL_SECONDS = 1.0
 _ACTIVE_STATUSES = ("running", "planning", "branch_created", "committed", "pr_created")
 
@@ -68,6 +70,31 @@ def claim_task(worker_id: str) -> Task | None:
         return task
 
 
+def _heartbeat_task(task_id: str, worker_id: str) -> bool:
+    """Refresh a worker lease only while this worker still owns the active task."""
+    with SessionLocal() as db:
+        result = db.execute(
+            update(Task)
+            .where(Task.id == task_id)
+            .where(Task.worker_id == worker_id)
+            .where(Task.status.in_(_ACTIVE_STATUSES))
+            .values(locked_at=_now())
+        )
+        db.commit()
+        return result.rowcount == 1
+
+
+def _lease_heartbeat(stop_event: threading.Event, task_id: str, worker_id: str) -> None:
+    """Keep long-running Gemini/GitHub work from being mistaken for a dead worker."""
+    while not stop_event.wait(HEARTBEAT_SECONDS):
+        try:
+            if not _heartbeat_task(task_id, worker_id):
+                logger.warning("Task lease lost task_id=%s worker_id=%s", task_id, worker_id)
+                return
+        except Exception:
+            logger.exception("Task heartbeat failed task_id=%s worker_id=%s", task_id, worker_id)
+
+
 def _run_async(func, *args):
     loop = asyncio.new_event_loop()
     try:
@@ -112,10 +139,19 @@ def _notify(task: Task, success: bool, result: dict | None = None) -> None:
         logger.exception("Telegram notification failed task_id=%s", task.id)
 
 
-def _execute_claimed(task: Task) -> None:
+def _execute_claimed(task: Task, worker_id: str) -> None:
     if not transition_task(task.id, "running", "planning"):
         logger.warning("Task state changed before execution task_id=%s", task.id)
         return
+
+    heartbeat_stop = threading.Event()
+    heartbeat = threading.Thread(
+        target=_lease_heartbeat,
+        args=(heartbeat_stop, task.id, worker_id),
+        name=f"task-heartbeat-{task.id[:8]}",
+        daemon=True,
+    )
+    heartbeat.start()
 
     try:
         result = _run_async(
@@ -168,6 +204,9 @@ def _execute_claimed(task: Task) -> None:
         logger.exception("Unexpected task failure task_id=%s", task.id)
         fail_task(task.id, settings.gemini_model, str(exc)[:4000])
         _notify(task, False)
+    finally:
+        heartbeat_stop.set()
+        heartbeat.join(timeout=2.0)
 
 
 def worker_loop(stop_event) -> None:
@@ -181,5 +220,5 @@ def worker_loop(stop_event) -> None:
         if task is None:
             stop_event.wait(POLL_SECONDS)
             continue
-        _execute_claimed(task)
+        _execute_claimed(task, worker_id)
     logger.info("Task worker stopped worker_id=%s", worker_id)
