@@ -8,7 +8,12 @@ from urllib.parse import quote
 
 import httpx
 
-from code_agent.github_app import GitHubAppError, installation_token, invalidate_installation_token
+from code_agent.github_app import (
+    GitHubAppError,
+    github_app_get,
+    installation_token,
+    invalidate_installation_token,
+)
 
 
 class GitHubRepoError(RuntimeError):
@@ -24,6 +29,7 @@ class GitHubRepo:
         self.full_name = full_name
         self.installation_id = installation_id
         self._client: httpx.AsyncClient | None = None
+        self._authorized = False
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -92,7 +98,37 @@ class GitHubRepo:
             raise GitHubRepoError(f"GitHub network error: {last_error}") from last_error
         raise GitHubRepoError("GitHub authentication failed after token refresh")
 
+    async def _authorize_repository(self) -> None:
+        if self._authorized:
+            return
+        try:
+            for page in range(1, 11):
+                data = await github_app_get(
+                    f"/installation/repositories?per_page=100&page={page}",
+                    self.installation_id,
+                )
+                if not isinstance(data, dict):
+                    raise GitHubRepoError("Invalid GitHub installation repository response")
+                repositories = data.get("repositories")
+                if not isinstance(repositories, list):
+                    raise GitHubRepoError("Invalid GitHub installation repository response")
+                target = self.full_name.casefold()
+                if any(
+                    isinstance(item, dict)
+                    and isinstance(item.get("full_name"), str)
+                    and item["full_name"].casefold() == target
+                    for item in repositories
+                ):
+                    self._authorized = True
+                    return
+                if len(repositories) < 100:
+                    break
+        except GitHubAppError as exc:
+            raise GitHubRepoError(f"Unable to verify repository access: {exc}") from exc
+        raise GitHubRepoError("Repository is not accessible through this GitHub installation")
+
     async def repo(self) -> dict[str, Any]:
+        await self._authorize_repository()
         return await self._request("GET", "")
 
     async def commit(self, ref: str) -> dict[str, Any]:
@@ -112,10 +148,12 @@ class GitHubRepo:
             raise GitHubRepoError(f"Unable to decode GitHub file: {path}") from exc
 
     async def create_branch(self, name: str, base: str) -> None:
+        await self._authorize_repository()
         source = await self.commit(base)
         await self._request("POST", "/git/refs", json={"ref": f"refs/heads/{name}", "sha": source["sha"]})
 
     async def apply_changes(self, branch: str, changes: list[dict[str, Any]], message: str) -> str:
+        await self._authorize_repository()
         head = await self.commit(branch)
         base_tree = head["commit"]["tree"]["sha"]
         tree_entries: list[dict[str, Any]] = []
@@ -141,6 +179,7 @@ class GitHubRepo:
         return new_commit["sha"]
 
     async def pull_request(self, branch: str, base: str, title: str, body: str) -> dict[str, Any]:
+        await self._authorize_repository()
         return await self._request(
             "POST", "/pulls", json={"title": title, "body": body, "head": branch, "base": base, "draft": True}
         )
