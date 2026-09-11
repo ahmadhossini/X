@@ -43,7 +43,7 @@ def _daily_reset_if_needed(user: User, now: datetime) -> None:
 
 def ensure_user_credit_state(telegram_id: int) -> tuple[int, str]:
     with SessionLocal() as db:
-        user = db.scalar(select(User).where(User.telegram_id == telegram_id))
+        user = db.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
         if not user:
             raise BillingError("User not found")
         now = _now()
@@ -69,9 +69,10 @@ def reserve_task_credits(telegram_id: int, repository: str, request: str, credit
         raise BillingError("Invalid credit amount")
 
     with SessionLocal() as db:
-        user = db.scalar(select(User).where(User.telegram_id == telegram_id))
+        user = db.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
         if not user:
             raise BillingError("User not found")
+
         now = _now()
         _daily_reset_if_needed(user, now)
         if user.credits < credits:
@@ -97,7 +98,7 @@ def reserve_task_credits(telegram_id: int, repository: str, request: str, credit
 
 def complete_task(task_id: str, model: str, credits_used: int | None = None) -> None:
     with SessionLocal() as db:
-        usage = db.scalar(select(UsageRecord).where(UsageRecord.task_id == task_id))
+        usage = db.scalar(select(UsageRecord).where(UsageRecord.task_id == task_id).with_for_update())
         if not usage or usage.status != "reserved":
             raise BillingError("Usage record is not reservable")
         usage.model = model[:255]
@@ -108,10 +109,10 @@ def complete_task(task_id: str, model: str, credits_used: int | None = None) -> 
 
 def fail_task(task_id: str, model: str, reason: str = "failed") -> None:
     with SessionLocal() as db:
-        usage = db.scalar(select(UsageRecord).where(UsageRecord.task_id == task_id))
+        usage = db.scalar(select(UsageRecord).where(UsageRecord.task_id == task_id).with_for_update())
         if not usage or usage.status != "reserved":
             return
-        user = db.get(User, usage.user_id)
+        user = db.get(User, usage.user_id, with_for_update=True)
         if user:
             user.credits += usage.credits_reserved
         usage.model = model[:255]
