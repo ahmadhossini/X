@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from sqlalchemy import select, update
+from telebot import TeleBot
 
 from billing.service import complete_task, fail_task, transition_task
 from code_agent.agent import AgentError, execute_task
@@ -73,6 +74,36 @@ def _run_async(func, *args):
         asyncio.set_event_loop(None)
 
 
+def _notify(task: Task, success: bool, result: dict | None = None, error: str = "") -> None:
+    if not task.chat_id:
+        return
+    bot = TeleBot(os.getenv("BOT_TOKEN", ""), parse_mode=None)
+    lang = task.language if task.language in {"en", "hi", "fa"} else "en"
+    result = result or {}
+    if success:
+        pr = result.get("pull_request") or {}
+        pr_url = pr.get("url") or ""
+        if lang == "fa":
+            text = f"تغییرات کد آماده شد.\nمخزن: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
+        elif lang == "hi":
+            text = f"Code changes तैयार हैं.\nRepository: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
+        else:
+            text = f"Code changes are ready.\nRepository: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
+        if pr_url:
+            text += f"\nPR: {pr_url}"
+    else:
+        if lang == "fa":
+            text = "اجرای کار ناموفق بود و اعتبار رزرو‌شده برگردانده شد."
+        elif lang == "hi":
+            text = "कार्य विफल हुआ और आरक्षित क्रेडिट वापस कर दिए गए।"
+        else:
+            text = "The task failed and the reserved credits were refunded."
+    try:
+        bot.send_message(task.chat_id, text[:4000])
+    except Exception:
+        logger.exception("Telegram notification failed task_id=%s", task.id)
+
+
 def _execute_claimed(task: Task) -> None:
     if not transition_task(task.id, "running", "planning"):
         logger.warning("Task state changed before execution task_id=%s", task.id)
@@ -87,11 +118,12 @@ def _execute_claimed(task: Task) -> None:
             task.request,
             task.installation_id,
             True,
-            None,
+            task.language,
         )
 
         if result.get("status") == "no_changes":
             fail_task(task.id, settings.gemini_model, "no_changes")
+            _notify(task, False)
             return
 
         branch = result.get("branch")
@@ -118,13 +150,16 @@ def _execute_claimed(task: Task) -> None:
                 raise AgentError("Task state changed while recording pull request")
 
         complete_task(task.id, settings.gemini_model)
+        _notify(task, True, result=result)
         logger.info("Task completed task_id=%s repository=%s", task.id, task.repository)
     except (AgentError, GitHubAppError, RuntimeError) as exc:
         logger.exception("Task failed task_id=%s repository=%s", task.id, task.repository)
         fail_task(task.id, settings.gemini_model, str(exc)[:4000])
+        _notify(task, False, error=str(exc))
     except Exception as exc:
         logger.exception("Unexpected task failure task_id=%s", task.id)
         fail_task(task.id, settings.gemini_model, str(exc)[:4000])
+        _notify(task, False, error=str(exc))
 
 
 def worker_loop(stop_event) -> None:
