@@ -6,7 +6,7 @@ from uuid import uuid4
 
 from sqlalchemy import select
 
-from database.models import UsageRecord, User
+from database.models import Task, UsageRecord, User
 from database.session import SessionLocal
 
 FREE_DAILY_CREDITS = 5
@@ -64,9 +64,17 @@ def estimate_task_credits(request: str) -> int:
     return 5
 
 
-def reserve_task_credits(telegram_id: int, repository: str, request: str, credits: int) -> CreditReservation:
-    if credits <= 0:
-        raise BillingError("Invalid credit amount")
+def reserve_task_credits(
+    telegram_id: int,
+    repository: str,
+    request: str,
+    credits: int,
+    *,
+    installation_id: int,
+    model: str = "",
+) -> CreditReservation:
+    if credits <= 0 or not installation_id:
+        raise BillingError("Invalid task reservation")
 
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
@@ -81,19 +89,44 @@ def reserve_task_credits(telegram_id: int, repository: str, request: str, credit
 
         user.credits -= credits
         task_id = uuid4().hex
+        task = Task(
+            id=task_id,
+            user_id=user.id,
+            installation_id=installation_id,
+            repository=repository,
+            request=request[:4000],
+            model=model[:255],
+            status="queued",
+        )
         usage = UsageRecord(
             task_id=task_id,
             user_id=user.id,
             repository=repository,
             request=request[:4000],
-            model="",
+            model=model[:255],
             credits_reserved=credits,
             credits_used=0,
             status="reserved",
         )
+        db.add(task)
         db.add(usage)
         db.commit()
         return CreditReservation(task_id=task_id, credits=credits, remaining=user.credits)
+
+
+def transition_task(task_id: str, from_status: str, to_status: str, **fields: object) -> bool:
+    with SessionLocal() as db:
+        task = db.scalar(select(Task).where(Task.id == task_id).with_for_update())
+        if not task or task.status != from_status:
+            return False
+        task.status = to_status
+        for key, value in fields.items():
+            if hasattr(task, key):
+                setattr(task, key, value)
+        if to_status in {"completed", "failed", "cancelled"}:
+            task.completed_at = _now()
+        db.commit()
+        return True
 
 
 def complete_task(task_id: str, model: str, credits_used: int | None = None) -> None:
@@ -101,9 +134,16 @@ def complete_task(task_id: str, model: str, credits_used: int | None = None) -> 
         usage = db.scalar(select(UsageRecord).where(UsageRecord.task_id == task_id).with_for_update())
         if not usage or usage.status != "reserved":
             raise BillingError("Usage record is not reservable")
+        task = db.scalar(select(Task).where(Task.id == task_id).with_for_update())
+        if not task:
+            raise BillingError("Task record is missing")
         usage.model = model[:255]
         usage.credits_used = usage.credits_reserved if credits_used is None else max(0, credits_used)
         usage.status = "completed"
+        if task.status not in {"completed", "failed", "cancelled"}:
+            task.status = "completed"
+            task.model = model[:255]
+            task.completed_at = _now()
         db.commit()
 
 
@@ -113,9 +153,15 @@ def fail_task(task_id: str, model: str, reason: str = "failed") -> None:
         if not usage or usage.status != "reserved":
             return
         user = db.get(User, usage.user_id, with_for_update=True)
+        task = db.scalar(select(Task).where(Task.id == task_id).with_for_update())
         if user:
             user.credits += usage.credits_reserved
         usage.model = model[:255]
         usage.credits_used = 0
         usage.status = reason[:32]
+        if task and task.status not in {"completed", "failed", "cancelled"}:
+            task.status = "failed"
+            task.model = model[:255]
+            task.error = reason[:4000]
+            task.completed_at = _now()
         db.commit()
