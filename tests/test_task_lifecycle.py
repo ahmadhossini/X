@@ -23,7 +23,10 @@ def db(monkeypatch):
     monkeypatch.setattr(task_queue, "SessionLocal", Session)
 
     with Session() as session:
-        user = User(telegram_id=12345, language="fa", plan="free", credits=20)
+        # Use a paid-plan fixture so the lifecycle tests can control the
+        # starting balance directly. Free users intentionally reset to their
+        # daily allowance before a reservation.
+        user = User(telegram_id=12345, language="fa", plan="pro", credits=20)
         session.add(user)
         session.flush()
         installation = GitHubInstallation(
