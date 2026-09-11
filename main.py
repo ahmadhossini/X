@@ -10,7 +10,7 @@ import uvicorn
 from telebot import TeleBot
 
 from api.main import app
-from bot.main import build_bot, shutdown_background_executor
+from bot.main import build_bot
 from bot.task_queue import worker_loop
 
 logging.basicConfig(level=logging.INFO)
@@ -52,10 +52,8 @@ def start_task_worker() -> None:
 
 
 def shutdown_handler(signum, frame) -> None:
-    global _telegram_bot
     logger.info("Shutdown signal received: %s", signum)
     _stop_event.set()
-    shutdown_background_executor()
     if _telegram_bot:
         logger.info("Stopping Telegram bot...")
         _telegram_bot.stop_bot()
