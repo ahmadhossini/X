@@ -7,7 +7,7 @@ import socket
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from telebot import TeleBot
 
 from billing.service import complete_task, fail_task, transition_task
@@ -19,7 +19,9 @@ from database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
 
-CLAIM_LEASE_SECONDS = 15 * 60
+# Do not automatically retry a task after it may have performed GitHub writes.
+# Without idempotent branch/commit/PR reconciliation, a retry can create duplicate changes.
+CLAIM_LEASE_SECONDS = 60 * 60
 POLL_SECONDS = 1.0
 _ACTIVE_STATUSES = ("running", "planning", "branch_created", "committed", "pr_created")
 
@@ -29,21 +31,23 @@ def _now() -> datetime:
 
 
 def recover_stale_tasks() -> int:
+    """Fail expired leases instead of requeueing potentially side-effected work."""
     cutoff = _now() - timedelta(seconds=CLAIM_LEASE_SECONDS)
     with SessionLocal() as db:
-        result = db.execute(
-            update(Task)
-            .where(Task.status.in_(_ACTIVE_STATUSES))
-            .where(Task.locked_at.is_not(None), Task.locked_at < cutoff)
-            .values(
-                status="queued",
-                worker_id=None,
-                locked_at=None,
-                error="Worker lease expired; task requeued",
+        stale_ids = list(
+            db.scalars(
+                select(Task.id)
+                .where(Task.status.in_(_ACTIVE_STATUSES))
+                .where(Task.locked_at.is_not(None), Task.locked_at < cutoff)
+                .limit(100)
             )
         )
-        db.commit()
-        return result.rowcount or 0
+
+    recovered = 0
+    for task_id in stale_ids:
+        fail_task(task_id, settings.gemini_model, "worker_lease_expired")
+        recovered += 1
+    return recovered
 
 
 def claim_task(worker_id: str) -> Task | None:
@@ -74,10 +78,14 @@ def _run_async(func, *args):
         asyncio.set_event_loop(None)
 
 
-def _notify(task: Task, success: bool, result: dict | None = None, error: str = "") -> None:
+def _notify(task: Task, success: bool, result: dict | None = None) -> None:
     if not task.chat_id:
         return
-    bot = TeleBot(os.getenv("BOT_TOKEN", ""), parse_mode=None)
+    token = os.getenv("BOT_TOKEN", "")
+    if not token:
+        logger.error("BOT_TOKEN is missing; cannot notify task_id=%s", task.id)
+        return
+    bot = TeleBot(token, parse_mode=None)
     lang = task.language if task.language in {"en", "hi", "fa"} else "en"
     result = result or {}
     if success:
@@ -130,7 +138,7 @@ def _execute_claimed(task: Task) -> None:
         if not branch:
             raise AgentError("Agent did not return a branch")
         if not transition_task(task.id, "planning", "branch_created", branch=branch):
-            raise AgentError("Task state changed while creating branch")
+            raise AgentError("Task state changed while recording branch")
 
         commit_sha = result.get("commit")
         if not commit_sha:
@@ -155,17 +163,19 @@ def _execute_claimed(task: Task) -> None:
     except (AgentError, GitHubAppError, RuntimeError) as exc:
         logger.exception("Task failed task_id=%s repository=%s", task.id, task.repository)
         fail_task(task.id, settings.gemini_model, str(exc)[:4000])
-        _notify(task, False, error=str(exc))
+        _notify(task, False)
     except Exception as exc:
         logger.exception("Unexpected task failure task_id=%s", task.id)
         fail_task(task.id, settings.gemini_model, str(exc)[:4000])
-        _notify(task, False, error=str(exc))
+        _notify(task, False)
 
 
 def worker_loop(stop_event) -> None:
     worker_id = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
     logger.info("Task worker started worker_id=%s", worker_id)
-    recover_stale_tasks()
+    recovered = recover_stale_tasks()
+    if recovered:
+        logger.warning("Marked %s stale task(s) failed to avoid duplicate GitHub writes", recovered)
     while not stop_event.is_set():
         task = claim_task(worker_id)
         if task is None:
