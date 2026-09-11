@@ -20,8 +20,6 @@ from database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
 
-# Do not automatically retry a task after it may have performed GitHub writes.
-# Without idempotent branch/commit/PR reconciliation, a retry can create duplicate changes.
 CLAIM_LEASE_SECONDS = 60 * 60
 HEARTBEAT_SECONDS = 30.0
 POLL_SECONDS = 1.0
@@ -36,15 +34,7 @@ def recover_stale_tasks() -> int:
     """Fail expired leases instead of requeueing potentially side-effected work."""
     cutoff = _now() - timedelta(seconds=CLAIM_LEASE_SECONDS)
     with SessionLocal() as db:
-        stale_ids = list(
-            db.scalars(
-                select(Task.id)
-                .where(Task.status.in_(_ACTIVE_STATUSES))
-                .where(Task.locked_at.is_not(None), Task.locked_at < cutoff)
-                .limit(100)
-            )
-        )
-
+        stale_ids = list(db.scalars(select(Task.id).where(Task.status.in_(_ACTIVE_STATUSES)).where(Task.locked_at.is_not(None), Task.locked_at < cutoff).limit(100)))
     recovered = 0
     for task_id in stale_ids:
         fail_task(task_id, settings.gemini_model, "worker_lease_expired")
@@ -54,12 +44,7 @@ def recover_stale_tasks() -> int:
 
 def claim_task(worker_id: str) -> Task | None:
     with SessionLocal() as db:
-        task = db.scalar(
-            select(Task)
-            .where(Task.status == "queued")
-            .order_by(Task.created_at.asc())
-            .with_for_update(skip_locked=True)
-        )
+        task = db.scalar(select(Task).where(Task.status == "queued").order_by(Task.created_at.asc()).with_for_update(skip_locked=True))
         if not task:
             db.rollback()
             return None
@@ -71,21 +56,13 @@ def claim_task(worker_id: str) -> Task | None:
 
 
 def _heartbeat_task(task_id: str, worker_id: str) -> bool:
-    """Refresh a worker lease only while this worker still owns the active task."""
     with SessionLocal() as db:
-        result = db.execute(
-            update(Task)
-            .where(Task.id == task_id)
-            .where(Task.worker_id == worker_id)
-            .where(Task.status.in_(_ACTIVE_STATUSES))
-            .values(locked_at=_now())
-        )
+        result = db.execute(update(Task).where(Task.id == task_id).where(Task.worker_id == worker_id).where(Task.status.in_(_ACTIVE_STATUSES)).values(locked_at=_now()))
         db.commit()
         return result.rowcount == 1
 
 
 def _lease_heartbeat(stop_event: threading.Event, task_id: str, worker_id: str) -> None:
-    """Keep long-running Gemini/GitHub work from being mistaken for a dead worker."""
     while not stop_event.wait(HEARTBEAT_SECONDS):
         try:
             if not _heartbeat_task(task_id, worker_id):
@@ -143,56 +120,30 @@ def _execute_claimed(task: Task, worker_id: str) -> None:
     if not transition_task(task.id, "running", "planning"):
         logger.warning("Task state changed before execution task_id=%s", task.id)
         return
-
     heartbeat_stop = threading.Event()
-    heartbeat = threading.Thread(
-        target=_lease_heartbeat,
-        args=(heartbeat_stop, task.id, worker_id),
-        name=f"task-heartbeat-{task.id[:8]}",
-        daemon=True,
-    )
+    heartbeat = threading.Thread(target=_lease_heartbeat, args=(heartbeat_stop, task.id, worker_id), name=f"task-heartbeat-{task.id[:8]}", daemon=True)
     heartbeat.start()
-
     try:
-        result = _run_async(
-            execute_task,
-            settings.gemini_api_key,
-            settings.gemini_model,
-            task.repository,
-            task.request,
-            task.installation_id,
-            True,
-            task.language,
-        )
-
+        result = _run_async(execute_task, settings.gemini_api_key, settings.gemini_model, task.repository, task.request, task.installation_id, True, task.language, task.id)
         if result.get("status") == "no_changes":
             fail_task(task.id, settings.gemini_model, "no_changes")
             _notify(task, False)
             return
-
         branch = result.get("branch")
         if not branch:
             raise AgentError("Agent did not return a branch")
         if not transition_task(task.id, "planning", "branch_created", branch=branch):
             raise AgentError("Task state changed while recording branch")
-
         commit_sha = result.get("commit")
         if not commit_sha:
             raise AgentError("Agent did not return a commit")
         if not transition_task(task.id, "branch_created", "committed", commit_sha=commit_sha):
             raise AgentError("Task state changed while recording commit")
-
         pr = result.get("pull_request") or {}
         pr_number = pr.get("number")
         if pr_number:
-            if not transition_task(
-                task.id,
-                "committed",
-                "pr_created",
-                pull_request_number=int(pr_number),
-            ):
+            if not transition_task(task.id, "committed", "pr_created", pull_request_number=int(pr_number)):
                 raise AgentError("Task state changed while recording pull request")
-
         complete_task(task.id, settings.gemini_model)
         _notify(task, True, result=result)
         logger.info("Task completed task_id=%s repository=%s", task.id, task.repository)
