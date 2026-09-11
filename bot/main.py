@@ -20,6 +20,7 @@ from billing.service import (
     estimate_task_credits,
     fail_task,
     reserve_task_credits,
+    transition_task,
 )
 from bot.locales import t
 from code_agent.agent import AgentError, execute_task
@@ -57,7 +58,6 @@ _ALREADY_RUNNING_TEXT = {
 
 
 def shutdown_background_executor() -> None:
-    """Stop accepting queued jobs during process shutdown and cancel jobs not yet running."""
     global _executor_shutdown
     with _executor_shutdown_lock:
         if _executor_shutdown:
@@ -78,20 +78,16 @@ def _run_async_in_thread(func: Callable[..., Any], *args: Any, **kwargs: Any) ->
 
 
 def _submit_background(user_id: int, func: Callable[..., Any], *args: Any) -> bool:
-    """Submit a bounded background job and enforce one expensive job per user."""
     with _executor_shutdown_lock:
         if _executor_shutdown:
             return False
-
     if not _task_slots.acquire(blocking=False):
         return False
-
     with _user_tasks_lock:
         if user_id in _user_tasks:
             _task_slots.release()
             return False
         _user_tasks.add(user_id)
-
     try:
         future = background_executor.submit(func, *args)
     except Exception:
@@ -201,27 +197,12 @@ def _language_markup() -> types.InlineKeyboardMarkup:
 
 def _set_user_commands(bot: TeleBot, user_id: int, language: str) -> None:
     descriptions = {
-        "en": {
-            "start": "Start XAI Code Agent", "connect": "Connect GitHub", "repos": "List repositories",
-            "task": "Create a code change", "balance": "Show credits and plan", "language": "Change language",
-            "disconnect": "Disconnect GitHub", "help": "Show help",
-        },
-        "hi": {
-            "start": "XAI Code Agent शुरू करें", "connect": "GitHub कनेक्ट करें", "repos": "Repositories देखें",
-            "task": "Code change बनाएँ", "balance": "क्रेडिट और प्लान देखें", "language": "भाषा बदलें",
-            "disconnect": "GitHub डिस्कनेक्ट करें", "help": "मदद देखें",
-        },
-        "fa": {
-            "start": "شروع XAI Code Agent", "connect": "اتصال GitHub", "repos": "نمایش مخزن‌ها",
-            "task": "ایجاد تغییر کد", "balance": "نمایش اعتبار و پلن", "language": "تغییر زبان",
-            "disconnect": "قطع اتصال GitHub", "help": "نمایش راهنما",
-        },
+        "en": {"start": "Start XAI Code Agent", "connect": "Connect GitHub", "repos": "List repositories", "task": "Create a code change", "balance": "Show credits and plan", "language": "Change language", "disconnect": "Disconnect GitHub", "help": "Show help"},
+        "hi": {"start": "XAI Code Agent शुरू करें", "connect": "GitHub कनेक्ट करें", "repos": "Repositories देखें", "task": "Code change बनाएँ", "balance": "क्रेडिट और प्लान देखें", "language": "भाषा बदलें", "disconnect": "GitHub डिस्कनेक्ट करें", "help": "मदद देखें"},
+        "fa": {"start": "شروع XAI Code Agent", "connect": "اتصال GitHub", "repos": "نمایش مخزن‌ها", "task": "ایجاد تغییر کد", "balance": "نمایش اعتبار و پلن", "language": "تغییر زبان", "disconnect": "قطع اتصال GitHub", "help": "نمایش راهنما"},
     }
     d = descriptions.get(language, descriptions["en"])
-    bot.set_my_commands(
-        [types.BotCommand(command, description) for command, description in d.items()],
-        scope=types.BotCommandScopeChat(user_id),
-    )
+    bot.set_my_commands([types.BotCommand(command, description) for command, description in d.items()], scope=types.BotCommandScopeChat(user_id))
 
 
 def _language_prompt() -> str:
@@ -232,7 +213,6 @@ def build_bot() -> TeleBot:
     token = os.getenv("BOT_TOKEN", "")
     if not token:
         raise RuntimeError("BOT_TOKEN is not configured")
-
     bot = TeleBot(token, num_threads=min(max(settings.code_agent_workers, 4), 12))
 
     @bot.message_handler(commands=["start"])
@@ -252,11 +232,7 @@ def build_bot() -> TeleBot:
         if len(payload) > 1 and payload[1] == "github_connected":
             installation = _installation(user_id)
             if installation:
-                bot.reply_to(
-                    message,
-                    t(language, "github_connected", login=installation.github_login or "GitHub"),
-                    reply_markup=_main_keyboard(language),
-                )
+                bot.reply_to(message, t(language, "github_connected", login=installation.github_login or "GitHub"), reply_markup=_main_keyboard(language))
                 return
         bot.reply_to(message, t(language, "welcome"), reply_markup=_main_keyboard(language), parse_mode="HTML")
 
@@ -282,11 +258,7 @@ def build_bot() -> TeleBot:
         language = _language(user_id)
         try:
             credits, plan = ensure_user_credit_state(user_id)
-            bot.reply_to(
-                message,
-                t(language, "balance", credits=credits, plan=plan),
-                reply_markup=_main_keyboard(language),
-            )
+            bot.reply_to(message, t(language, "balance", credits=credits, plan=plan), reply_markup=_main_keyboard(language))
         except BillingError:
             bot.reply_to(message, t(language, "billing_error"), reply_markup=_main_keyboard(language))
 
@@ -311,20 +283,10 @@ def build_bot() -> TeleBot:
             bot.answer_callback_query(call.id, t(language, "language_selected"))
             if call.message:
                 try:
-                    bot.edit_message_text(
-                        t(language, "language_selected") + "\n\n" + t(language, "welcome"),
-                        chat_id=call.message.chat.id,
-                        message_id=call.message.message_id,
-                        parse_mode="HTML",
-                    )
+                    bot.edit_message_text(t(language, "language_selected") + "\n\n" + t(language, "welcome"), chat_id=call.message.chat.id, message_id=call.message.message_id, parse_mode="HTML")
                 except Exception:
                     logger.exception("Failed to edit language selection message")
-                bot.send_message(
-                    call.message.chat.id,
-                    t(language, "menu_home"),
-                    reply_markup=_main_keyboard(language),
-                    parse_mode="HTML",
-                )
+                bot.send_message(call.message.chat.id, t(language, "menu_home"), reply_markup=_main_keyboard(language), parse_mode="HTML")
         except Exception:
             logger.exception("Language selection failed for telegram_id=%s", call.from_user.id)
             try:
@@ -362,16 +324,9 @@ def build_bot() -> TeleBot:
             if not user:
                 bot.reply_to(message, t(language, "github_not_connected"), reply_markup=_main_keyboard(language))
                 return
-            count = db.query(GitHubInstallation).filter(
-                GitHubInstallation.user_id == user.id,
-                GitHubInstallation.active.is_(True),
-            ).update({"active": False})
+            count = db.query(GitHubInstallation).filter(GitHubInstallation.user_id == user.id, GitHubInstallation.active.is_(True)).update({"active": False})
             db.commit()
-        bot.reply_to(
-            message,
-            t(language, "github_disconnected") if count else t(language, "github_not_connected"),
-            reply_markup=_main_keyboard(language),
-        )
+        bot.reply_to(message, t(language, "github_disconnected") if count else t(language, "github_not_connected"), reply_markup=_main_keyboard(language))
 
     @bot.message_handler(commands=["repos"])
     def repositories(message: Message) -> None:
@@ -389,19 +344,13 @@ def build_bot() -> TeleBot:
 
         def _fetch_repos_and_reply(chat_id: int, telegram_id: int, installation_id: int, lang: str) -> None:
             try:
-                data = _run_async_in_thread(
-                    github_app_get, "/installation/repositories?per_page=100", installation_id
-                )
+                data = _run_async_in_thread(github_app_get, "/installation/repositories?per_page=100", installation_id)
                 repos = data.get("repositories", [])
                 if not repos:
                     bot.send_message(chat_id, t(lang, "repos_empty"), reply_markup=_main_keyboard(lang))
                     return
                 lines = [f"• {repo.get('full_name')}" for repo in repos[:50] if repo.get("full_name")]
-                bot.send_message(
-                    chat_id,
-                    t(lang, "repos_title") + "\n\n" + "\n".join(lines),
-                    reply_markup=_main_keyboard(lang),
-                )
+                bot.send_message(chat_id, t(lang, "repos_title") + "\n\n" + "\n".join(lines), reply_markup=_main_keyboard(lang))
             except Exception:
                 logger.exception("Failed to list GitHub repositories for telegram_id=%s", telegram_id)
                 bot.send_message(chat_id, t(lang, "github_error"), reply_markup=_main_keyboard(lang))
@@ -437,18 +386,21 @@ def build_bot() -> TeleBot:
 
         estimated_credits = estimate_task_credits(request)
         try:
-            reservation = reserve_task_credits(user_id, repository, request, estimated_credits)
+            reservation = reserve_task_credits(
+                user_id,
+                repository,
+                request,
+                estimated_credits,
+                installation_id=installation.installation_id,
+                model=settings.gemini_model,
+            )
         except BillingError as exc:
             if str(exc) == "Insufficient credits":
                 try:
                     credits, plan = ensure_user_credit_state(user_id)
                 except BillingError:
                     credits, plan = 0, "free"
-                bot.reply_to(
-                    message,
-                    t(language, "insufficient_credits", credits=credits, required=estimated_credits, plan=plan),
-                    reply_markup=_main_keyboard(language),
-                )
+                bot.reply_to(message, t(language, "insufficient_credits", credits=credits, required=estimated_credits, plan=plan), reply_markup=_main_keyboard(language))
             else:
                 bot.reply_to(message, t(language, "billing_error"), reply_markup=_main_keyboard(language))
             return
@@ -466,36 +418,57 @@ def build_bot() -> TeleBot:
             reserved_credits: int,
         ) -> None:
             try:
+                if not transition_task(task_id, "queued", "running"):
+                    raise RuntimeError("Task is no longer queued")
                 result = _run_async_in_thread(execute_task, api_key, model, repo, req, installation_id, True, lang)
                 if result["status"] == "no_changes":
                     fail_task(task_id, model, "no_changes")
-                    bot.send_message(
-                        chat_id,
-                        t(lang, "no_changes", summary=result["summary"][:1500]),
-                        reply_markup=_main_keyboard(lang),
-                    )
+                    try:
+                        bot.send_message(chat_id, t(lang, "no_changes", summary=result["summary"][:1500]), reply_markup=_main_keyboard(lang))
+                    except Exception:
+                        logger.exception("Telegram notification failed after no-change task %s", task_id)
                     return
-                complete_task(task_id, model, reserved_credits)
+
                 pr = result.get("pull_request", {})
+                transition_task(
+                    task_id,
+                    "running",
+                    "changes_applied",
+                    branch=result.get("branch"),
+                    commit_sha=result.get("commit"),
+                    pull_request_number=pr.get("number"),
+                )
+
+                # Billing is finalized before notification and is never rolled back because Telegram delivery failed.
+                complete_task(task_id, model, reserved_credits)
+
                 pr_text = f"\nPR: {pr['url']}" if pr.get("url") else ""
                 files = "\n".join(f"• {p}" for p in result.get("changes", []))
-                reply = t(
-                    lang,
-                    "changes_ready",
-                    summary=result.get("summary", ""),
-                    files=files,
-                    commit=result.get("commit", "")[:12],
-                    pr=pr_text,
-                )
-                bot.send_message(chat_id, reply[:4000], reply_markup=_main_keyboard(lang))
+                reply = t(lang, "changes_ready", summary=result.get("summary", ""), files=files, commit=result.get("commit", "")[:12], pr=pr_text)
+                try:
+                    bot.send_message(chat_id, reply[:4000], reply_markup=_main_keyboard(lang))
+                except Exception:
+                    logger.exception("Telegram notification failed after completed task %s", task_id)
             except (AgentError, GitHubAppError, RuntimeError):
-                logger.exception("Agent task failed for repository=%s", repo)
+                logger.exception("Agent task failed for repository=%s task_id=%s", repo, task_id)
                 fail_task(task_id, model)
-                bot.send_message(chat_id, t(lang, "task_failed_refunded"), reply_markup=_main_keyboard(lang))
+                try:
+                    bot.send_message(chat_id, t(lang, "task_failed_refunded"), reply_markup=_main_keyboard(lang))
+                except Exception:
+                    logger.exception("Telegram failure notification failed for task %s", task_id)
+            except BillingError:
+                logger.exception("Billing finalization failed for task_id=%s; task is NOT automatically refunded", task_id)
+                try:
+                    bot.send_message(chat_id, t(lang, "task_failed"), reply_markup=_main_keyboard(lang))
+                except Exception:
+                    logger.exception("Telegram billing-error notification failed for task %s", task_id)
             except Exception:
-                logger.exception("Unexpected error running task for repository=%s", repo)
+                logger.exception("Unexpected error running task for repository=%s task_id=%s", repo, task_id)
                 fail_task(task_id, model)
-                bot.send_message(chat_id, t(lang, "task_failed_refunded"), reply_markup=_main_keyboard(lang))
+                try:
+                    bot.send_message(chat_id, t(lang, "task_failed_refunded"), reply_markup=_main_keyboard(lang))
+                except Exception:
+                    logger.exception("Telegram failure notification failed for task %s", task_id)
 
         if not _submit_background(
             user_id,
@@ -518,11 +491,7 @@ def build_bot() -> TeleBot:
             bot.reply_to(message, text, reply_markup=_main_keyboard(language))
             return
 
-        bot.reply_to(
-            message,
-            t(language, "task_received_with_cost", credits=estimated_credits, remaining=reservation.remaining),
-            reply_markup=_main_keyboard(language),
-        )
+        bot.reply_to(message, t(language, "task_received_with_cost", credits=estimated_credits, remaining=reservation.remaining), reply_markup=_main_keyboard(language))
 
     @bot.message_handler(func=lambda message: bool(message.text))
     def menu_buttons(message: Message) -> None:
