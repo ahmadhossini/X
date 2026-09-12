@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 import code_agent.agent as agent
 from code_agent.github import GitHubRepoError
 
@@ -93,6 +91,7 @@ def test_reconcile_rejects_orphan_commit_with_wrong_parent(monkeypatch):
     repo = FakeRepo(
         branch_head=None,
         marker_commit={"sha": "marker", "parents": [{"sha": "different"}]},
+        marker_details={"sha": "marker", "parents": [{"sha": "different"}]},
     )
     assert run(agent.reconcile_task(repo, "main", "request", "task-1")) is None
     assert repo.created is None
