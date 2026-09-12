@@ -89,18 +89,13 @@ def reserve_task_credits(
         raise BillingError("Invalid task reservation")
 
     with SessionLocal() as db:
-        # Lock the user row first. This serializes reservations from multiple
-        # Telegram updates/processes for the same user.
         user = db.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
         if not user:
             raise BillingError("User not found")
 
         active_task = db.scalar(
             select(Task.id)
-            .where(
-                Task.user_id == user.id,
-                Task.status.in_(ACTIVE_TASK_STATUSES),
-            )
+            .where(Task.user_id == user.id, Task.status.in_(ACTIVE_TASK_STATUSES))
             .limit(1)
         )
         if active_task:
@@ -108,8 +103,6 @@ def reserve_task_credits(
 
         installation = None
         if installation_id:
-            # The task layer stores GitHub's installation_id, not the database
-            # primary key of GitHubInstallation. Always scope it to the owner.
             installation = db.scalar(
                 select(GitHubInstallation).where(
                     GitHubInstallation.installation_id == installation_id,
@@ -212,17 +205,23 @@ def complete_task(task_id: str, model: str, credits_used: int | None = None) -> 
         db.commit()
 
 
-def fail_task(task_id: str, model: str, reason: str = "failed") -> None:
+def fail_task(task_id: str, model: str, reason: str = "failed", *, refund: bool = True) -> None:
+    """Fail a task and optionally refund its reservation.
+
+    A refund is safe only when the task produced no external side effect. Once
+    a GitHub commit/branch/PR exists, the reservation must remain consumed even
+    if recording the later state in the database fails.
+    """
     with SessionLocal() as db:
         usage = db.scalar(select(UsageRecord).where(UsageRecord.task_id == task_id).with_for_update())
         if not usage or usage.status != "reserved":
             return
         user = db.get(User, usage.user_id, with_for_update=True)
         task = db.scalar(select(Task).where(Task.id == task_id).with_for_update())
-        if user:
+        if refund and user:
             user.credits += usage.credits_reserved
         usage.model = model[:255]
-        usage.credits_used = 0
+        usage.credits_used = 0 if refund else usage.credits_reserved
         usage.status = reason[:32]
         if task and task.status not in {"completed", "failed", "cancelled"}:
             task.status = "failed"
