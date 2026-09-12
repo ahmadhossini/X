@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 CLAIM_LEASE_SECONDS = 60 * 60
 HEARTBEAT_SECONDS = 30.0
 POLL_SECONDS = 1.0
-_ACTIVE_STATUSES = ("running", "planning", "branch_created", "committed", "pr_created")
+RECOVERY_CHECK_SECONDS = 60.0
+_ACTIVE_STATUSES = ("running", "planning", "branch_created", "committed", "pr_created", "changes_applied")
 
 
 def _now() -> datetime:
@@ -31,14 +32,37 @@ def _now() -> datetime:
 
 
 def recover_stale_tasks() -> int:
-    """Fail expired leases instead of requeueing potentially side-effected work."""
+    """Requeue expired work so the persistent worker can reconcile it safely.
+
+    The agent uses a deterministic task branch and XAI-TASK marker. If a GitHub
+    side effect already completed, execute_task() reuses that branch/commit/PR
+    instead of blindly creating a second result. Requeueing also handles a
+    process death before any GitHub write, which the previous fail-only policy
+    incorrectly treated as a permanent failure.
+    """
     cutoff = _now() - timedelta(seconds=CLAIM_LEASE_SECONDS)
-    with SessionLocal() as db:
-        stale_ids = list(db.scalars(select(Task.id).where(Task.status.in_(_ACTIVE_STATUSES)).where(Task.locked_at.is_not(None), Task.locked_at < cutoff).limit(100)))
     recovered = 0
-    for task_id in stale_ids:
-        fail_task(task_id, settings.gemini_model, "worker_lease_expired")
-        recovered += 1
+    with SessionLocal() as db:
+        stale = list(
+            db.scalars(
+                select(Task)
+                .where(Task.status.in_(_ACTIVE_STATUSES))
+                .where(Task.locked_at.is_not(None), Task.locked_at < cutoff)
+                .order_by(Task.created_at.asc())
+                .limit(100)
+                .with_for_update(skip_locked=True)
+            )
+        )
+        for task in stale:
+            task.status = "queued"
+            task.worker_id = None
+            task.locked_at = None
+            task.error = None
+            recovered += 1
+        if recovered:
+            db.commit()
+    if recovered:
+        logger.warning("Requeued %s stale task(s) for crash recovery", recovered)
     return recovered
 
 
@@ -69,7 +93,7 @@ def _lease_heartbeat(stop_event: threading.Event, task_id: str, worker_id: str) 
                 logger.warning("Task lease lost task_id=%s worker_id=%s", task_id, worker_id)
                 return
         except Exception:
-            logger.exception("Task heartbeat failed task_id=%s worker_id=%s", task_id, worker_id)
+            logger.exception("Task heartbeat failed task_id=%s", task_id)
 
 
 def _run_async(func, *args):
@@ -163,10 +187,13 @@ def _execute_claimed(task: Task, worker_id: str) -> None:
 def worker_loop(stop_event) -> None:
     worker_id = f"{socket.gethostname()}:{os.getpid()}:{uuid4().hex[:8]}"
     logger.info("Task worker started worker_id=%s", worker_id)
-    recovered = recover_stale_tasks()
-    if recovered:
-        logger.warning("Marked %s stale task(s) failed to avoid duplicate GitHub writes", recovered)
+    recover_stale_tasks()
+    next_recovery = _now().timestamp() + RECOVERY_CHECK_SECONDS
     while not stop_event.is_set():
+        now = _now().timestamp()
+        if now >= next_recovery:
+            recover_stale_tasks()
+            next_recovery = now + RECOVERY_CHECK_SECONDS
         task = claim_task(worker_id)
         if task is None:
             stop_event.wait(POLL_SECONDS)
