@@ -7,7 +7,7 @@ from typing import Any
 
 from google import genai
 
-from code_agent.github import GitHubRepo
+from code_agent.github import GitHubRepo, GitHubRepoError
 
 
 class AgentError(RuntimeError):
@@ -145,6 +145,55 @@ CONTEXT:
     return {"summary": summary, "changes": normalized}
 
 
+async def reconcile_task(repo: GitHubRepo, base: str, request: str, task_id: str) -> dict[str, Any] | None:
+    """Recover a GitHub side effect from a worker crash without calling Gemini.
+
+    The task branch is deterministic. A commit carrying the task marker is
+    therefore the only commit we are willing to reconnect automatically. We
+    only move a branch when the marker commit is exactly the current head or
+    its single parent is the current head, which guarantees a fast-forward and
+    prevents attaching an unrelated commit to a recovered task.
+    """
+    marker = f"XAI-TASK:{task_id}"
+    branch = _branch_name(request, task_id)
+    marker_commit = await repo.find_task_commit(marker)
+    branch_head: dict[str, Any] | None = None
+    try:
+        branch_head = await repo.commit(branch)
+    except GitHubRepoError:
+        branch_head = None
+
+    if marker_commit is None:
+        return None
+
+    marker_sha = str(marker_commit.get("sha") or "")
+    if not marker_sha:
+        return None
+
+    if branch_head is not None:
+        head_sha = str(branch_head.get("sha") or "")
+        if head_sha == marker_sha:
+            return {"status": "committed", "summary": "Recovered existing task commit.", "changes": [], "commit": marker_sha, "branch": branch}
+        parents = marker_commit.get("parents")
+        parent_sha = parents[0].get("sha") if isinstance(parents, list) and parents and isinstance(parents[0], dict) else None
+        if parent_sha == head_sha:
+            await repo.update_branch(branch, marker_sha)
+            return {"status": "committed", "summary": "Recovered existing task commit.", "changes": [], "commit": marker_sha, "branch": branch}
+        return None
+
+    # The commit exists but the branch does not. Reattach it only when its
+    # parent is the exact base commit used for this task.
+    marker_details = await repo.commit(marker_sha)
+    parents = marker_details.get("parents")
+    parent_sha = parents[0].get("sha") if isinstance(parents, list) and parents and isinstance(parents[0], dict) else None
+    base_details = await repo.commit(base)
+    base_sha = str(base_details.get("sha") or "")
+    if parent_sha != base_sha:
+        return None
+    await repo.create_branch(branch, marker_sha)
+    return {"status": "committed", "summary": "Recovered existing task commit.", "changes": [], "commit": marker_sha, "branch": branch}
+
+
 async def execute_task(
     api_key: str,
     model: str,
@@ -160,6 +209,28 @@ async def execute_task(
     try:
         metadata = await repo.repo()
         base = metadata.get("default_branch", "main")
+
+        if task_id:
+            try:
+                recovered = await reconcile_task(repo, base, request, task_id)
+            except GitHubRepoError:
+                raise
+            if recovered is not None:
+                result = recovered
+                if create_pr:
+                    pr = await repo.pull_request(
+                        result["branch"],
+                        base,
+                        f"XAI Agent: recovered task {task_id[:12]}",
+                        f"Recovered automated coding-agent change.\n\nRequest: {request}",
+                    )
+                    result["pull_request"] = {
+                        "number": pr.get("number"),
+                        "url": pr.get("html_url"),
+                        "draft": pr.get("draft", True),
+                    }
+                return result
+
         context = await build_context(repo, base)
         plan = await plan_changes(api_key, model, request, context, language)
         if not plan["changes"]:
