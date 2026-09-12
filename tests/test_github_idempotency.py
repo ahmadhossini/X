@@ -15,7 +15,7 @@ def test_apply_changes_skips_duplicate_commit_when_marker_is_on_head(monkeypatch
     async def request(method, path, **kwargs):
         calls.append((method, path))
         assert method == "GET"
-        assert path == "/commits/xai-agent/fix-login"
+        assert path == "/commits/xai-agent%2Ffix-login"
         return {
             "sha": "existing-commit",
             "commit": {
@@ -37,7 +37,7 @@ def test_apply_changes_skips_duplicate_commit_when_marker_is_on_head(monkeypatch
     )
 
     assert result == "existing-commit"
-    assert calls == [("authorize", ""), ("GET", "/commits/xai-agent/fix-login")]
+    assert calls == [("authorize", ""), ("GET", "/commits/xai-agent%2Ffix-login")]
 
 
 def test_apply_changes_retries_same_ref_update_after_ambiguous_failure(monkeypatch):
@@ -49,7 +49,7 @@ def test_apply_changes_retries_same_ref_update_after_ambiguous_failure(monkeypat
 
     async def request(method, path, **kwargs):
         nonlocal patch_attempts
-        if method == "GET" and path == "/commits/xai-agent/fix-login":
+        if method == "GET" and path == "/commits/xai-agent%2Ffix-login":
             return {
                 "sha": "parent-sha",
                 "commit": {"message": "old", "tree": {"sha": "base-tree"}},
