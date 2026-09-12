@@ -43,4 +43,11 @@ TEXTS = {
     "connect_page_error": "GitHub connection could not be completed. Close this page and try again.",
     "free_chat_limit": "You have used your 10 free messages for the last 24 hours. Coding tasks are separate and use your plan credits.",
     "chat_error": "I could not generate a reply right now. Please try again later.",
+    "repo_selection_needed": "Several repositories are available. Include the exact repository name, for example: 'How many files are in X?'",
+    "repo_not_found": "The requested repository was not found in your connected repositories.",
+    "repo_file_count": "Repository {repository} contains {count} files.",
+    "repo_file_count_partial": "GitHub returned a truncated repository tree for {repository}. At least {count} files were visible in the response.",
+    "repo_info": "<b>Repository info</b>\n\nRepository: {repository}\nDefault branch: {branch}\nStars: {stars}\nDescription: {description}",
+    "repo_tree": "<b>{repository} structure</b>\n\nFiles seen: {count}\n\n{listing}",
+    "repo_tree_truncated": "\n\nGitHub returned a truncated tree, so the full file list is not shown.",
 }
