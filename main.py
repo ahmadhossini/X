@@ -44,11 +44,17 @@ def start_bot() -> None:
 
 
 def start_task_worker() -> None:
-    try:
-        worker_loop(_stop_event)
-    except Exception:
-        logger.exception("Persistent task worker stopped unexpectedly")
-        raise
+    """Keep the persistent worker alive if an unexpected worker error occurs."""
+    restart_delay = 2.0
+    while not _stop_event.is_set():
+        try:
+            worker_loop(_stop_event)
+            return
+        except Exception:
+            logger.exception("Persistent task worker crashed; restarting")
+            if _stop_event.wait(restart_delay):
+                return
+            restart_delay = min(restart_delay * 2, 30.0)
 
 
 def shutdown_handler(signum, frame) -> None:
