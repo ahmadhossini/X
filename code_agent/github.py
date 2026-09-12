@@ -87,6 +87,41 @@ class GitHubRepo:
             raise GitHubRepoError(f"GitHub network error: {last_error}") from last_error
         raise GitHubRepoError("GitHub authentication failed after token refresh")
 
+    async def _request_search(self, path: str) -> Any:
+        last_error: Exception | None = None
+        for token_attempt in range(2):
+            try:
+                token = await installation_token(self.installation_id, force_refresh=token_attempt == 1)
+            except GitHubAppError as exc:
+                raise GitHubRepoError(str(exc)) from exc
+            headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "Authorization": f"Bearer {token}"}
+            client = await self._get_client()
+            for attempt in range(4):
+                response: httpx.Response | None = None
+                try:
+                    response = await client.get(f"https://api.github.com{path}", headers=headers)
+                    if response.status_code == 401 and token_attempt == 0:
+                        invalidate_installation_token(self.installation_id)
+                        break
+                    if response.status_code == 429 or response.status_code >= 500:
+                        if attempt < 3:
+                            await asyncio.sleep(self._retry_delay(response, attempt))
+                            continue
+                    if response.is_error:
+                        detail = response.text[:500].replace("\n", " ")
+                        raise GitHubRepoError(f"GitHub API {response.status_code}: {detail}")
+                    return response.json()
+                except (httpx.TimeoutException, httpx.NetworkError) as exc:
+                    last_error = exc
+                    if attempt >= 3:
+                        break
+                    await asyncio.sleep(self._retry_delay(response, attempt))
+            if last_error is not None and token_attempt == 1:
+                raise GitHubRepoError(f"GitHub network error: {last_error}") from last_error
+        if last_error is not None:
+            raise GitHubRepoError(f"GitHub network error: {last_error}") from last_error
+        raise GitHubRepoError("GitHub authentication failed after token refresh")
+
     async def _authorize_repository(self) -> None:
         if self._authorized:
             return
@@ -128,6 +163,30 @@ class GitHubRepo:
         except (KeyError, ValueError, UnicodeDecodeError) as exc:
             raise GitHubRepoError(f"Unable to decode GitHub file: {path}") from exc
 
+    async def branch_commits(self, branch: str, limit: int = 100) -> list[dict[str, Any]]:
+        await self._authorize_repository()
+        safe_limit = max(1, min(limit, 100))
+        data = await self._request("GET", f"/commits?sha={quote(branch, safe='/')}&per_page={safe_limit}")
+        if not isinstance(data, list):
+            raise GitHubRepoError("Invalid GitHub branch commit response")
+        return [item for item in data if isinstance(item, dict)]
+
+    async def find_task_commit(self, marker: str, limit: int = 10) -> dict[str, Any] | None:
+        await self._authorize_repository()
+        safe_limit = max(1, min(limit, 20))
+        query = quote(marker, safe="")
+        repo_query = quote(f"repo:{self.full_name}", safe="")
+        data = await self._request_search(f"/search/commits?q={query}%20{repo_query}&per_page={safe_limit}")
+        if not isinstance(data, dict):
+            raise GitHubRepoError("Invalid GitHub commit search response")
+        items = data.get("items")
+        if not isinstance(items, list):
+            raise GitHubRepoError("Invalid GitHub commit search response")
+        for item in items:
+            if isinstance(item, dict) and item.get("sha") and marker in str((item.get("commit") or {}).get("message") or ""):
+                return item
+        return None
+
     async def create_branch(self, name: str, base: str) -> None:
         await self._authorize_repository()
         source = await self.commit(base)
@@ -139,6 +198,10 @@ class GitHubRepo:
             existing = await self._request("GET", f"/git/ref/heads/{quote(name, safe='/')}")
             if not isinstance(existing, dict) or not ((existing.get("object") or {}).get("sha")):
                 raise
+
+    async def update_branch(self, branch: str, sha: str) -> None:
+        await self._authorize_repository()
+        await self._request("PATCH", f"/git/refs/heads/{quote(branch, safe='/')}", json={"sha": sha, "force": False})
 
     async def apply_changes(self, branch: str, changes: list[dict[str, Any]], message: str, idempotency_marker: str | None = None) -> str:
         await self._authorize_repository()
@@ -165,11 +228,6 @@ class GitHubRepo:
         try:
             await self._request("PATCH", ref_path, json=ref_payload)
         except GitHubRepoError as first_error:
-            # Updating a branch to a known commit is idempotent. A timeout or
-            # transient failure can happen after GitHub accepted the first
-            # PATCH, so retry the exact same ref update before declaring the
-            # task failed. force=False still prevents overwriting unrelated
-            # commits.
             try:
                 await self._request("PATCH", ref_path, json=ref_payload)
             except GitHubRepoError:
