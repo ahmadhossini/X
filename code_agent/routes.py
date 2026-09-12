@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hmac
+
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
@@ -22,7 +24,8 @@ class TaskRequest(BaseModel):
 
 def _authorize(api_key: str | None) -> None:
     expected = settings.code_agent_api_key
-    if not expected or api_key != expected:
+    supplied = api_key or ""
+    if not expected or not hmac.compare_digest(supplied, expected):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 

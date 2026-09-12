@@ -10,16 +10,19 @@ def test_safe_path_rejects_traversal_and_protected_files():
     assert not _safe_path("keys/private.pem")
 
 
-def test_branch_name_is_unique_and_contains_request_digest():
-    first = _branch_name("fix login bug")
-    second = _branch_name("fix login bug")
-    other = _branch_name("add login tests")
+def test_branch_name_is_stable_for_task_and_contains_request_digest():
+    first = _branch_name("fix login bug", "task-123")
+    second = _branch_name("fix login bug", "task-123")
+    other_task = _branch_name("fix login bug", "task-456")
 
     assert first.startswith("xai-agent/fix-login-bug-")
-    assert second.startswith("xai-agent/fix-login-bug-")
-    assert first != second
-    assert first != other
-    assert len(first.rsplit("-", 1)[-1]) == 6
+    assert first == second
+    assert first != other_task
+    assert len(first.rsplit("-", 1)[-1]) == 12
+
+
+def test_branch_name_without_task_id_remains_deterministic():
+    assert _branch_name("fix login bug") == _branch_name("fix login bug")
 
 
 def test_output_language_prefers_selected_telegram_language():

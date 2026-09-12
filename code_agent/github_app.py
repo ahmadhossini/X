@@ -108,26 +108,10 @@ async def github_app_list_installations() -> list[dict[str, Any]]:
     return [item for item in data if isinstance(item, dict)]
 
 
-async def _resolve_replacement_installation_id(installation_id: int) -> int | None:
-    """Recover a replaced installation only when this App has exactly one installation.
-
-    This avoids silently selecting another customer's installation in a multi-user deployment.
-    """
-    try:
-        installations = await github_app_list_installations()
-    except GitHubAppError:
-        return None
-    candidates = [item.get("id") for item in installations if item.get("id") and item.get("id") != installation_id]
-    if len(candidates) == 1:
-        return int(candidates[0])
-    return None
-
-
 async def installation_token(installation_id: int, force_refresh: bool = False) -> str:
     if not installation_id:
         raise GitHubAppError("GitHub installation is not configured")
 
-    requested_installation_id = installation_id
     if not force_refresh:
         now = time.time()
         with _TOKEN_CACHE_LOCK:
@@ -135,39 +119,26 @@ async def installation_token(installation_id: int, force_refresh: bool = False) 
             if cached and cached[1] > now:
                 return cached[0]
 
-    async def _issue_token(target_id: int) -> str:
-        headers = {
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "Authorization": f"Bearer {app_jwt()}",
-        }
-        response = await _request(
-            "POST",
-            f"https://api.github.com/app/installations/{target_id}/access_tokens",
-            headers=headers,
-        )
-        if response.is_error:
-            detail = response.text[:500].replace("\n", " ")
-            raise GitHubAppError(f"GitHub App installation token failed: {response.status_code}: {detail}")
-        try:
-            return response.json()["token"]
-        except (ValueError, KeyError, TypeError) as exc:
-            raise GitHubAppError("GitHub returned an invalid installation token response") from exc
-
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Authorization": f"Bearer {app_jwt()}",
+    }
+    response = await _request(
+        "POST",
+        f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+        headers=headers,
+    )
+    if response.is_error:
+        detail = response.text[:500].replace("\n", " ")
+        raise GitHubAppError(f"GitHub App installation token failed: {response.status_code}: {detail}")
     try:
-        token = await _issue_token(installation_id)
-        cache_id = installation_id
-    except GitHubAppError as exc:
-        if "token failed: 404" not in str(exc):
-            raise
-        replacement_id = await _resolve_replacement_installation_id(requested_installation_id)
-        if replacement_id is None:
-            raise
-        token = await _issue_token(replacement_id)
-        cache_id = requested_installation_id
+        token = response.json()["token"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise GitHubAppError("GitHub returned an invalid installation token response") from exc
 
     with _TOKEN_CACHE_LOCK:
-        _TOKEN_CACHE[cache_id] = (token, time.time() + _TOKEN_CACHE_TTL)
+        _TOKEN_CACHE[installation_id] = (token, time.time() + _TOKEN_CACHE_TTL)
     return token
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import secrets
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
@@ -78,19 +79,21 @@ _PUBLIC_CONNECT_PAGE = """<!doctype html>
 
 def _public_connect_page() -> HTMLResponse:
     telegram_url = f"https://t.me/{settings.bot_username}?start=connect_github" if settings.bot_username else "#"
-    html = _PUBLIC_CONNECT_PAGE.replace("{telegram_url}", telegram_url)
-    return HTMLResponse(html, status_code=200)
+    html_page = _PUBLIC_CONNECT_PAGE.replace("{telegram_url}", html.escape(telegram_url, quote=True))
+    return HTMLResponse(html_page, status_code=200)
 
 
 def _setup_error_page(title: str, detail: str) -> HTMLResponse:
-    safe_detail = detail.replace("<", "&lt;").replace(">", "&gt;")
+    safe_title = html.escape(title)
+    safe_detail = html.escape(detail, quote=True)
     telegram_url = f"https://t.me/{settings.bot_username}?start=connect_github" if settings.bot_username else "#"
-    html = f"""<!doctype html>
+    safe_telegram_url = html.escape(telegram_url, quote=True)
+    html_page = f"""<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>XAI Code Agent — خطای اتصال</title>
 <style>body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#080b12;color:#f5f7fb;font-family:system-ui,sans-serif}}.card{{width:min(620px,100%);padding:32px;border:1px solid rgba(255,255,255,.12);border-radius:24px;background:rgba(255,255,255,.07);text-align:center}}h1{{margin-top:0}}.detail{{margin:22px 0;padding:16px;border-radius:14px;background:rgba(0,0,0,.25);color:#d6dbe5;direction:ltr;text-align:left;word-break:break-word}}a{{display:inline-block;padding:13px 22px;border-radius:14px;background:rgba(255,255,255,.14);color:white;text-decoration:none;font-weight:700}}</style></head>
-<body><main class="card"><h1>{title}</h1><p>اتصال GitHub در این مرحله ثبت نشد. نشست شما مصرف نشده است و می‌توانید دوباره تلاش کنید.</p><div class="detail">{safe_detail}</div><a href="{telegram_url}">بازگشت به Telegram و تلاش دوباره</a></main></body></html>"""
-    return HTMLResponse(html, status_code=502)
+<body><main class="card"><h1>{safe_title}</h1><p>اتصال GitHub در این مرحله ثبت نشد. نشست شما مصرف نشده است و می‌توانید دوباره تلاش کنید.</p><div class="detail">{safe_detail}</div><a href="{safe_telegram_url}">بازگشت به Telegram و تلاش دوباره</a></main></body></html>"""
+    return HTMLResponse(html_page, status_code=502)
 
 
 @router.get("/connect")
@@ -119,15 +122,26 @@ async def setup(
 ) -> Response:
     with SessionLocal() as db:
         connect_state = db.scalar(
-            select(GitHubConnectState).where(GitHubConnectState.state == state)
+            select(GitHubConnectState)
+            .where(GitHubConnectState.state == state)
+            .with_for_update()
         )
         if not connect_state or connect_state.used_at is not None or _is_expired(connect_state.expires_at):
             return HTMLResponse("GitHub connection state is invalid or expired.", status_code=400)
 
+        user = db.scalar(select(User).where(User.telegram_id == connect_state.telegram_id))
+        if not user:
+            return _setup_error_page("کاربر Telegram پیدا نشد", "user_not_found")
+
         if setup_action == "uninstall":
-            db.query(GitHubInstallation).filter(
-                GitHubInstallation.installation_id == installation_id
-            ).update({"active": False})
+            installation_record = db.scalar(
+                select(GitHubInstallation).where(
+                    GitHubInstallation.installation_id == installation_id,
+                    GitHubInstallation.user_id == user.id,
+                )
+            )
+            if installation_record:
+                installation_record.active = False
             connect_state.used_at = _now()
             db.commit()
             return HTMLResponse("GitHub connection was removed.", status_code=200)
@@ -135,20 +149,12 @@ async def setup(
         if setup_action not in {"install", "update"}:
             return _setup_error_page("عملیات GitHub نامعتبر است", f"setup_action={setup_action}")
 
-        # Verify the installation BEFORE consuming the one-time state.
-        # A temporary GitHub/API/database failure therefore does not strand the user.
         try:
             installation = await github_app_get_installation(installation_id)
         except GitHubAppError as exc:
-            return _setup_error_page(
-                "تأیید اتصال GitHub ناموفق بود",
-                str(exc),
-            )
+            return _setup_error_page("تأیید اتصال GitHub ناموفق بود", str(exc))
         except Exception as exc:
-            return _setup_error_page(
-                "خطای غیرمنتظره در اتصال GitHub",
-                type(exc).__name__,
-            )
+            return _setup_error_page("خطای غیرمنتظره در اتصال GitHub", type(exc).__name__)
 
         account = installation.get("account") or {}
         github_user_id = account.get("id")
@@ -160,24 +166,18 @@ async def setup(
             )
 
         try:
-            user = db.scalar(select(User).where(User.telegram_id == connect_state.telegram_id))
-            if not user:
-                user = User(
-                    telegram_id=connect_state.telegram_id,
-                    github_login=github_login,
-                )
-                db.add(user)
-                db.flush()
-            else:
-                user.github_login = github_login
-
+            user.github_login = github_login
             existing = db.scalar(
                 select(GitHubInstallation).where(
                     GitHubInstallation.installation_id == installation_id
                 )
             )
+            if existing and existing.user_id != user.id:
+                return _setup_error_page(
+                    "این اتصال GitHub قبلاً به کاربر دیگری تعلق دارد",
+                    "installation_ownership_conflict",
+                )
             if existing:
-                existing.user_id = user.id
                 existing.github_user_id = github_user_id
                 existing.github_login = github_login
                 existing.active = True
@@ -192,15 +192,11 @@ async def setup(
                     )
                 )
 
-            # Consume the state only after both GitHub verification and DB writes are ready.
             connect_state.used_at = _now()
             db.commit()
         except SQLAlchemyError:
             db.rollback()
-            return _setup_error_page(
-                "ذخیره اتصال GitHub ناموفق بود",
-                "database_error",
-            )
+            return _setup_error_page("ذخیره اتصال GitHub ناموفق بود", "database_error")
 
     if settings.bot_username:
         return RedirectResponse(
