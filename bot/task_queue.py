@@ -32,14 +32,7 @@ def _now() -> datetime:
 
 
 def recover_stale_tasks() -> int:
-    """Requeue expired work so the persistent worker can reconcile it safely.
-
-    The agent uses a deterministic task branch and XAI-TASK marker. If a GitHub
-    side effect already completed, execute_task() reuses that branch/commit/PR
-    instead of blindly creating a second result. Requeueing also handles a
-    process death before any GitHub write, which the previous fail-only policy
-    incorrectly treated as a permanent failure.
-    """
+    """Requeue expired work so the persistent worker can reconcile it safely."""
     cutoff = _now() - timedelta(seconds=CLAIM_LEASE_SECONDS)
     recovered = 0
     with SessionLocal() as db:
@@ -81,7 +74,13 @@ def claim_task(worker_id: str) -> Task | None:
 
 def _heartbeat_task(task_id: str, worker_id: str) -> bool:
     with SessionLocal() as db:
-        result = db.execute(update(Task).where(Task.id == task_id).where(Task.worker_id == worker_id).where(Task.status.in_(_ACTIVE_STATUSES)).values(locked_at=_now()))
+        result = db.execute(
+            update(Task)
+            .where(Task.id == task_id)
+            .where(Task.worker_id == worker_id)
+            .where(Task.status.in_(_ACTIVE_STATUSES))
+            .values(locked_at=_now())
+        )
         db.commit()
         return result.rowcount == 1
 
@@ -147,12 +146,25 @@ def _execute_claimed(task: Task, worker_id: str) -> None:
     heartbeat_stop = threading.Event()
     heartbeat = threading.Thread(target=_lease_heartbeat, args=(heartbeat_stop, task.id, worker_id), name=f"task-heartbeat-{task.id[:8]}", daemon=True)
     heartbeat.start()
+    side_effects_applied = False
     try:
-        result = _run_async(execute_task, settings.gemini_api_key, settings.gemini_model, task.repository, task.request, task.installation_id, True, task.language, task.id)
+        result = _run_async(
+            execute_task,
+            settings.gemini_api_key,
+            settings.gemini_model,
+            task.repository,
+            task.request,
+            task.installation_id,
+            True,
+            task.language,
+            task.id,
+        )
         if result.get("status") == "no_changes":
-            fail_task(task.id, settings.gemini_model, "no_changes")
+            fail_task(task.id, settings.gemini_model, "no_changes", refund=True)
             _notify(task, False)
             return
+
+        side_effects_applied = bool(result.get("commit") or result.get("branch") or result.get("pull_request"))
         branch = result.get("branch")
         if not branch:
             raise AgentError("Agent did not return a branch")
@@ -173,11 +185,11 @@ def _execute_claimed(task: Task, worker_id: str) -> None:
         logger.info("Task completed task_id=%s repository=%s", task.id, task.repository)
     except (AgentError, GitHubAppError, RuntimeError) as exc:
         logger.exception("Task failed task_id=%s repository=%s", task.id, task.repository)
-        fail_task(task.id, settings.gemini_model, str(exc)[:4000])
+        fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not side_effects_applied)
         _notify(task, False)
     except Exception as exc:
         logger.exception("Unexpected task failure task_id=%s", task.id)
-        fail_task(task.id, settings.gemini_model, str(exc)[:4000])
+        fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not side_effects_applied)
         _notify(task, False)
     finally:
         heartbeat_stop.set()
