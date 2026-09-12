@@ -4,15 +4,15 @@ import asyncio
 import re
 from typing import Any
 
+from sqlalchemy import select
 from telebot import TeleBot
 from telebot.types import Message
 
 from bot.locales import t
-from code_agent.github_app import github_app_get
 from code_agent.github import GitHubRepo, GitHubRepoError
+from code_agent.github_app import github_app_get
 from database.models import GitHubInstallation, User
 from database.session import SessionLocal
-from sqlalchemy import select
 
 
 _COUNT_PATTERNS = (
@@ -76,29 +76,26 @@ def _extract_repo_hint(text: str) -> str | None:
     return hint.group(1) if hint else None
 
 
-def _resolve_repo(text: str, repositories: list[str]) -> str | None:
+def _resolve_repo(text: str, repositories: list[dict[str, Any]]) -> dict[str, Any] | None:
     hint = _extract_repo_hint(text)
     if hint:
         normalized = hint.casefold()
-        exact = [r for r in repositories if r.casefold() == normalized]
+        exact = [r for r in repositories if str(r.get("full_name", "")).casefold() == normalized]
         if exact:
             return exact[0]
-        by_name = [r for r in repositories if r.rsplit("/", 1)[-1].casefold() == normalized]
+        by_name = [r for r in repositories if str(r.get("name", "")).casefold() == normalized]
         if len(by_name) == 1:
             return by_name[0]
         return None
-    if len(repositories) == 1:
-        return repositories[0]
-    return None
+    return repositories[0] if len(repositories) == 1 else None
 
 
-def _repo_list(installation_id: int) -> list[str]:
-    data = _run(github_app_get("/installation/repositories?per_page=100", installation_id))
-    return [
-        item["full_name"]
-        for item in data.get("repositories", [])
-        if isinstance(item, dict) and isinstance(item.get("full_name"), str)
-    ]
+def _repo_list(installation_id: int) -> list[dict[str, Any]]:
+    data = _run(github_app_get("/installation/repositories?per_page=100&page=1", installation_id))
+    repositories = data.get("repositories", [])
+    if not isinstance(repositories, list):
+        raise GitHubRepoError("Invalid GitHub installation repository response")
+    return [item for item in repositories if isinstance(item, dict) and isinstance(item.get("full_name"), str)]
 
 
 def _format_tree(tree: dict[str, Any], limit: int = 80) -> tuple[int, str, bool]:
@@ -124,42 +121,42 @@ def handle_read_only_github_query(bot: TeleBot, message: Message, language: str)
 
     try:
         repositories = _repo_list(installation.installation_id)
-        repository = _resolve_repo(text, repositories)
-        if not repository:
+        selected = _resolve_repo(text, repositories)
+        if not selected:
             if len(repositories) > 1:
-                names = "\n".join(f"• {name}" for name in repositories[:20])
+                names = "\n".join(f"• {item['full_name']}" for item in repositories[:20])
                 bot.reply_to(message, f"{t(language, 'repo_selection_needed')}\n\n{names}")
             else:
                 bot.reply_to(message, t(language, "repo_not_found"))
             return True
 
+        repository = selected["full_name"]
+        default_branch = selected.get("default_branch") or "main"
         repo = GitHubRepo(repository, installation.installation_id)
         try:
-            if _contains(text, _COUNT_PATTERNS):
-                metadata = _run(repo.repo())
-                tree = _run(repo.tree(metadata.get("default_branch", "main")))
-                count, _listing, truncated = _format_tree(tree, limit=1)
-                if truncated:
-                    bot.reply_to(message, t(language, "repo_file_count_partial", repository=repository, count=count))
-                else:
-                    bot.reply_to(message, t(language, "repo_file_count", repository=repository, count=count))
-                return True
-
-            metadata = _run(repo.repo())
             if _contains(text, _REPO_INFO_PATTERNS):
+                metadata = _run(repo.repo())
                 description = metadata.get("description") or "-"
-                branch = metadata.get("default_branch") or "main"
+                branch = metadata.get("default_branch") or default_branch
                 stars = metadata.get("stargazers_count", 0)
                 bot.reply_to(message, t(language, "repo_info", repository=repository, branch=branch, stars=stars, description=description))
                 return True
 
-            tree = _run(repo.tree(metadata.get("default_branch", "main")))
+            tree = _run(repo.tree(default_branch))
             count, listing, truncated = _format_tree(tree)
-            suffix = "\n\nفهرست کامل به دلیل محدودیت GitHub نمایش داده نشد." if truncated and language == "fa" else ("\n\nThe tree is truncated by GitHub." if truncated else "")
+            if _contains(text, _COUNT_PATTERNS):
+                key = "repo_file_count_partial" if truncated else "repo_file_count"
+                bot.reply_to(message, t(language, key, repository=repository, count=count))
+                return True
+
+            suffix = t(language, "repo_tree_truncated") if truncated else ""
             bot.reply_to(message, t(language, "repo_tree", repository=repository, count=count, listing=listing) + suffix)
             return True
         finally:
             _run(repo.aclose())
-    except (GitHubRepoError, Exception):
+    except GitHubRepoError:
+        bot.reply_to(message, t(language, "github_error"))
+        return True
+    except Exception:
         bot.reply_to(message, t(language, "github_error"))
         return True
