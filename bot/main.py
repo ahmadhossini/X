@@ -10,6 +10,7 @@ from telebot.types import CallbackQuery, Message
 
 from api.github_connect import create_connect_state
 from billing.service import BillingError, ensure_user_credit_state, estimate_task_credits, reserve_task_credits
+from bot.chat import handle_chat_message
 from bot.locales import t
 from code_agent.github_app import github_app_get
 from core.config import settings
@@ -299,8 +300,6 @@ def build_bot() -> TeleBot:
                 bot.reply_to(message, t(language, "billing_error"), reply_markup=_main_keyboard(language))
             return
 
-        # The command handler only persists the task. GitHub/Gemini execution is
-        # performed by bot.task_queue so work survives Telegram thread/process restarts.
         bot.reply_to(
             message,
             t(language, "task_received_with_cost", credits=estimated_credits, remaining=reservation.remaining),
@@ -326,5 +325,7 @@ def build_bot() -> TeleBot:
             disconnect(message)
         elif text == t(language, "brand_button"):
             bot.send_message(message.chat.id, t(language, "menu_home"), reply_markup=_main_keyboard(language), parse_mode="HTML")
+        elif not text.startswith("/"):
+            handle_chat_message(bot, message)
 
     return bot
