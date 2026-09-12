@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from api.github_connect import router as github_connect_router
 from api.github_webhook import router as github_webhook_router
 from api.miniapp import router as miniapp_router
+from api.miniapp_connect import router as miniapp_connect_router
 from code_agent.routes import router as code_agent_router
 from database.session import init_db
 
@@ -24,6 +25,7 @@ app.include_router(code_agent_router)
 app.include_router(github_connect_router)
 app.include_router(github_webhook_router)
 app.include_router(miniapp_router)
+app.include_router(miniapp_connect_router)
 app.mount("/dashboard", StaticFiles(directory="dashboard", html=True), name="dashboard")
 
 
