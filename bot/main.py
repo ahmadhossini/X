@@ -266,14 +266,23 @@ def build_bot() -> TeleBot:
             bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(user_id, language))
             return
 
-        payload = (message.text or "")[len("/task"):].strip()
-        if "|" not in payload:
+        request = (message.text or "")[len("/task"):].strip()
+        if len(request) < 3 or request.startswith("/"):
             bot.reply_to(message, t(language, "task_format"), reply_markup=_main_keyboard(language))
             return
-        repository, request = [part.strip() for part in payload.split("|", 1)]
-        if repository.count("/") != 1 or any(part in repository for part in ("..", " ")) or len(request) < 3:
-            bot.reply_to(message, t(language, "invalid_repo"), reply_markup=_main_keyboard(language))
+
+        try:
+            data = _run_async(github_app_get, "/installation/repositories?per_page=100", installation.installation_id)
+            repositories = [repo.get("full_name") for repo in data.get("repositories", []) if repo.get("full_name")]
+        except Exception:
+            logger.exception("Failed to resolve default repository for task")
+            bot.reply_to(message, t(language, "github_error"), reply_markup=_main_keyboard(language))
             return
+
+        if len(repositories) != 1:
+            bot.reply_to(message, t(language, "task_choose_repo", count=len(repositories)), reply_markup=_main_keyboard(language))
+            return
+        repository = repositories[0]
 
         estimated_credits = estimate_task_credits(request)
         try:
