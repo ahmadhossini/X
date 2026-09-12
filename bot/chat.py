@@ -20,8 +20,7 @@ def _ensure_usage_table() -> None:
         db.execute(
             text(
                 "CREATE TABLE IF NOT EXISTS free_chat_usage ("
-                "id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, "
-                "created_at TIMESTAMP NOT NULL)"
+                "user_id INTEGER NOT NULL, created_at TIMESTAMP NOT NULL)"
             )
         )
         db.execute(text("CREATE INDEX IF NOT EXISTS ix_free_chat_usage_user_created ON free_chat_usage (user_id, created_at)"))
@@ -79,18 +78,16 @@ def _reserve_free_message(telegram_id: int) -> tuple[bool, int]:
 
 def _release_last_free_message(telegram_id: int) -> None:
     with SessionLocal() as db:
-        usage_id = db.scalar(
+        db.execute(
             text(
-                "SELECT free_chat_usage.id FROM free_chat_usage "
-                "JOIN users ON users.id = free_chat_usage.user_id "
-                "WHERE users.telegram_id = :telegram_id "
-                "ORDER BY free_chat_usage.created_at DESC LIMIT 1"
+                "DELETE FROM free_chat_usage WHERE user_id = "
+                "(SELECT id FROM users WHERE telegram_id = :telegram_id) "
+                "AND created_at = (SELECT MAX(created_at) FROM free_chat_usage WHERE user_id = "
+                "(SELECT id FROM users WHERE telegram_id = :telegram_id))"
             ),
             {"telegram_id": telegram_id},
         )
-        if usage_id is not None:
-            db.execute(text("DELETE FROM free_chat_usage WHERE id = :id"), {"id": usage_id})
-            db.commit()
+        db.commit()
 
 
 def handle_chat_message(bot, message: Message) -> None:
