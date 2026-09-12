@@ -3,19 +3,32 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from google import genai
-from sqlalchemy import func, select
+from sqlalchemy import select, text
 from telebot.types import Message
 
 from bot.locales import t
 from core.config import settings
-from database.models import FreeChatUsage, User
+from database.models import User
 from database.session import SessionLocal
 
 FREE_CHAT_DAILY_LIMIT = 10
 MAX_CHAT_MESSAGE_LENGTH = 4000
 
 
-async def _generate_reply(text: str, language: str) -> str:
+def _ensure_usage_table() -> None:
+    with SessionLocal() as db:
+        db.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS free_chat_usage ("
+                "id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, "
+                "created_at TIMESTAMP NOT NULL)"
+            )
+        )
+        db.execute(text("CREATE INDEX IF NOT EXISTS ix_free_chat_usage_user_created ON free_chat_usage (user_id, created_at)"))
+        db.commit()
+
+
+async def _generate_reply(text_value: str, language: str) -> str:
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured")
     language_name = {"fa": "Persian (Farsi)", "hi": "Hindi", "en": "English"}.get(language, "English")
@@ -24,7 +37,7 @@ async def _generate_reply(text: str, language: str) -> str:
         "If the user asks about coding, explain clearly and provide useful code when appropriate. "
         f"Reply in {language_name} unless the user clearly asks for another language. "
         "Do not claim to have changed a GitHub repository unless a coding task was actually executed.\n\n"
-        f"User message:\n{text}"
+        f"User message:\n{text_value}"
     )
     client = genai.Client(api_key=settings.gemini_api_key)
     response = await client.aio.models.generate_content(
@@ -38,6 +51,7 @@ async def _generate_reply(text: str, language: str) -> str:
 
 
 def _reserve_free_message(telegram_id: int) -> tuple[bool, int]:
+    _ensure_usage_table()
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=1)
     with SessionLocal() as db:
@@ -48,26 +62,43 @@ def _reserve_free_message(telegram_id: int) -> tuple[bool, int]:
             db.flush()
 
         used = db.scalar(
-            select(func.count(FreeChatUsage.id)).where(
-                FreeChatUsage.user_id == user.id,
-                FreeChatUsage.created_at >= since,
-            )
+            text("SELECT COUNT(*) FROM free_chat_usage WHERE user_id = :user_id AND created_at >= :since"),
+            {"user_id": user.id, "since": since},
         ) or 0
         if used >= FREE_CHAT_DAILY_LIMIT:
             db.rollback()
             return False, 0
 
-        db.add(FreeChatUsage(user_id=user.id, created_at=now))
+        db.execute(
+            text("INSERT INTO free_chat_usage (user_id, created_at) VALUES (:user_id, :created_at)"),
+            {"user_id": user.id, "created_at": now},
+        )
         db.commit()
         return True, FREE_CHAT_DAILY_LIMIT - used - 1
+
+
+def _release_last_free_message(telegram_id: int) -> None:
+    with SessionLocal() as db:
+        usage_id = db.scalar(
+            text(
+                "SELECT free_chat_usage.id FROM free_chat_usage "
+                "JOIN users ON users.id = free_chat_usage.user_id "
+                "WHERE users.telegram_id = :telegram_id "
+                "ORDER BY free_chat_usage.created_at DESC LIMIT 1"
+            ),
+            {"telegram_id": telegram_id},
+        )
+        if usage_id is not None:
+            db.execute(text("DELETE FROM free_chat_usage WHERE id = :id"), {"id": usage_id})
+            db.commit()
 
 
 def handle_chat_message(bot, message: Message) -> None:
     if not message.from_user or not message.text:
         return
 
-    text = message.text.strip()
-    if not text or len(text) > MAX_CHAT_MESSAGE_LENGTH:
+    text_value = message.text.strip()
+    if not text_value or len(text_value) > MAX_CHAT_MESSAGE_LENGTH:
         return
 
     language = "en"
@@ -76,26 +107,16 @@ def handle_chat_message(bot, message: Message) -> None:
         if user and user.language in {"fa", "en", "hi"}:
             language = user.language
 
-    allowed, remaining = _reserve_free_message(message.from_user.id)
+    allowed, _remaining = _reserve_free_message(message.from_user.id)
     if not allowed:
         bot.reply_to(message, t(language, "free_chat_limit"))
         return
 
     try:
-        reply = _run_async(_generate_reply, text, language)
+        reply = _run_async(_generate_reply, text_value, language)
         bot.reply_to(message, reply)
     except Exception:
-        # Do not consume a free message when the provider fails.
-        with SessionLocal() as db:
-            usage = db.scalar(
-                select(FreeChatUsage)
-                .join(User, FreeChatUsage.user_id == User.id)
-                .where(User.telegram_id == message.from_user.id)
-                .order_by(FreeChatUsage.created_at.desc())
-            )
-            if usage:
-                db.delete(usage)
-                db.commit()
+        _release_last_free_message(message.from_user.id)
         bot.reply_to(message, t(language, "chat_error"))
 
 
