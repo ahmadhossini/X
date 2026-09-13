@@ -55,6 +55,8 @@ def create_usdt_order(telegram_id: int, plan_key: str) -> dict:
     address = settings.ton_payment_address.strip()
     if not address:
         raise TonPaymentError("TON_PAYMENT_ADDRESS is not configured")
+    if not settings.public_base_url:
+        raise TonPaymentError("PUBLIC_BASE_URL is not configured")
 
     order_id = _new_order_id()
     comment = _new_comment()
@@ -87,7 +89,7 @@ def create_usdt_order(telegram_id: int, plan_key: str) -> dict:
         db.commit()
 
     deep_link = (
-        f"ton://transfer/{quote(address, safe='') }"
+        f"ton://transfer/{quote(address, safe='')}"
         f"?jetton={quote(_usdt_master(), safe='')}&amount={amount_units}&text={quote(comment, safe='')}"
     )
     return {
@@ -104,6 +106,42 @@ def create_usdt_order(telegram_id: int, plan_key: str) -> dict:
         "checkout_url": f"{settings.public_base_url}/api/payments/ton/checkout/{order_id}",
         "expires_in": settings.ton_payment_expiry_minutes * 60,
     }
+
+
+def get_usdt_order(order_id: str) -> dict:
+    with SessionLocal() as db:
+        order = db.scalar(
+            select(Payment).where(
+                Payment.provider == "ton_direct",
+                Payment.provider_payment_id == order_id,
+            )
+        )
+        if not order:
+            raise TonPaymentError("Payment order not found")
+        raw = json.loads(order.raw_payload or "{}")
+        return {
+            "order_id": order_id,
+            "plan": order.plan,
+            "status": order.status,
+            "amount_usdt": f"{(order.amount_usd_cents or order.amount_usd * 100) / 100:.2f}",
+            "asset": "USDT",
+            "network": "TON",
+            "address": str(raw.get("address") or settings.ton_payment_address),
+            "comment": str(raw.get("comment") or ""),
+            "deep_link": _deep_link(
+                str(raw.get("address") or settings.ton_payment_address),
+                int(raw.get("amount_units") or 0),
+                str(raw.get("comment") or ""),
+            ),
+            "expires_in": settings.ton_payment_expiry_minutes * 60,
+        }
+
+
+def _deep_link(address: str, amount_units: int, comment: str) -> str:
+    return (
+        f"ton://transfer/{quote(address, safe='')}"
+        f"?jetton={quote(_usdt_master(), safe='')}&amount={amount_units}&text={quote(comment, safe='')}"
+    )
 
 
 def _user_id(db, telegram_id: int) -> int:
@@ -175,7 +213,7 @@ def _transfer_comment(transfer: dict) -> str | None:
     return None
 
 
-def _find_matching_transfer(order: Payment, created_at: int, amount_units: int, comment: str) -> dict | None:
+def _find_matching_transfer(created_at: int, amount_units: int, comment: str) -> dict | None:
     params = {
         "owner_address": settings.ton_payment_address,
         "direction": "in",
@@ -220,24 +258,26 @@ def verify_usdt_order(order_id: str) -> dict:
             return {"status": order.status, "order_id": order_id}
 
         raw = json.loads(order.raw_payload or "{}")
-        created_at = int(raw.get("created_at") or int(order.created_at.replace(tzinfo=timezone.utc).timestamp()))
+        created_at = int(raw.get("created_at") or int(order.created_at.timestamp()))
         if int(time.time()) - created_at > settings.ton_payment_expiry_minutes * 60:
             order.status = "expired"
             db.commit()
             return {"status": "expired", "order_id": order_id}
         comment = str(raw.get("comment") or "")
         amount_units = int(raw.get("amount_units") or 0)
+        plan_key = order.plan
+        amount_usd_cents = order.amount_usd_cents or order.amount_usd * 100
 
-    transfer = _find_matching_transfer(order, created_at, amount_units, comment)
+    transfer = _find_matching_transfer(created_at, amount_units, comment)
     if not transfer:
         return {"status": "pending", "order_id": order_id}
 
     activated = activate_paid_plan(
         telegram_id=_telegram_id_for_order(order_id),
-        plan_key=order.plan,
+        plan_key=plan_key,
         payment_method="ton_direct",
         payment_id=order_id,
-        amount_usd_cents=order.amount_usd_cents or order.amount_usd * 100,
+        amount_usd_cents=amount_usd_cents,
         asset="USDT",
         raw_payload=transfer,
     )
