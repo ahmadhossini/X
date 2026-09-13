@@ -27,7 +27,7 @@
       taskStatus: 'وضعیت کار', queued: 'در صف', running: 'در حال اجرا', planning: 'در حال تحلیل',
       branch_created: 'Branch ساخته شد', committed: 'Commit ساخته شد', pr_created: 'Pull Request ساخته شد',
       completed: 'تکمیل شد', noChanges: 'تغییری لازم نبود.', billingTitle: 'خرید Credits',
-      buyStars: 'پرداخت با Telegram Stars', buyCrypto: 'پرداخت با USDT روی TON', cryptoNote: 'پرداخت کریپتو در صفحه امن خارج از Telegram باز می‌شود.',
+      buyCrypto: 'پرداخت با USDT روی TON', cryptoNote: 'پرداخت کریپتو در صفحه امن خارج از Telegram باز می‌شود.',
       paymentStarting: 'در حال ساخت پرداخت...', paymentPaid: 'پرداخت تأیید شد و Credits اضافه شد.', paymentPending: 'در انتظار تأیید پرداخت...', paymentFailed: 'پرداخت ایجاد نشد.'
     },
     en: {
@@ -41,7 +41,7 @@
       taskStatus: 'Task status', queued: 'Queued', running: 'Running', planning: 'Planning',
       branch_created: 'Branch created', committed: 'Commit created', pr_created: 'Pull Request created',
       completed: 'Completed', noChanges: 'No changes were needed.', billingTitle: 'Buy Credits',
-      buyStars: 'Pay with Telegram Stars', buyCrypto: 'Pay with USDT on TON', cryptoNote: 'Crypto checkout opens in a secure external page.',
+      buyCrypto: 'Pay with USDT on TON', cryptoNote: 'Crypto checkout opens in a secure external page.',
       paymentStarting: 'Creating payment...', paymentPaid: 'Payment confirmed and Credits added.', paymentPending: 'Waiting for payment confirmation...', paymentFailed: 'Could not create payment.'
     },
     hi: {
@@ -55,7 +55,7 @@
       taskStatus: 'कार्य स्थिति', queued: 'कतार में', running: 'चल रहा है', planning: 'विश्लेषण हो रहा है',
       branch_created: 'Branch बनाई गई', committed: 'Commit बनाया गया', pr_created: 'Pull Request बनाया गया',
       completed: 'पूरा हुआ', noChanges: 'कोई बदलाव आवश्यक नहीं था।', billingTitle: 'Credits खरीदें',
-      buyStars: 'Telegram Stars से भुगतान', buyCrypto: 'TON पर USDT से भुगतान', cryptoNote: 'Crypto checkout एक सुरक्षित बाहरी पेज में खुलेगा।',
+      buyCrypto: 'TON पर USDT से भुगतान', cryptoNote: 'Crypto checkout एक सुरक्षित बाहरी पेज में खुलेगा।',
       paymentStarting: 'भुगतान बनाया जा रहा है...', paymentPaid: 'भुगतान की पुष्टि हो गई और Credits जोड़ दिए गए।', paymentPending: 'भुगतान की पुष्टि का इंतजार...', paymentFailed: 'भुगतान नहीं बनाया जा सका।'
     }
   };
@@ -128,19 +128,14 @@
       const details = document.createElement('div');
       details.className = 'plan-details';
       details.textContent = `$${plan.price_usd} · ${plan.credits} Credits${plan.duration_days ? ` · ${plan.duration_days} days` : ''}`;
-      const stars = document.createElement('button');
-      stars.className = 'primary';
-      stars.type = 'button';
-      stars.textContent = `${c.buyStars} · ${plan.stars} XTR`;
-      stars.addEventListener('click', () => buyStars(plan.key));
       const crypto = document.createElement('button');
-      crypto.className = 'ghost full';
+      crypto.className = 'primary full';
       crypto.type = 'button';
       crypto.textContent = c.buyCrypto;
       crypto.addEventListener('click', () => buyCrypto(plan.key));
       const note = document.createElement('small');
       note.textContent = c.cryptoNote;
-      card.append(title, details, stars, crypto, note);
+      card.append(title, details, crypto, note);
       plansBox.appendChild(card);
     });
   }
@@ -152,28 +147,6 @@
       renderPlans();
     } catch (error) {
       billingStatus.textContent = error.message;
-    }
-  }
-
-  async function buyStars(planKey) {
-    const c = copy[lang] || copy.fa;
-    billingStatus.textContent = c.paymentStarting;
-    try {
-      const data = await api('/api/miniapp/billing/stars', {
-        method: 'POST', body: JSON.stringify({ plan: planKey })
-      });
-      if (!tg?.openInvoice) throw new Error('Telegram invoice is unavailable');
-      tg.openInvoice(data.invoice_url, (statusValue) => {
-        if (statusValue === 'paid') {
-          billingStatus.textContent = c.paymentPaid;
-          loadMe();
-        } else if (statusValue === 'pending') {
-          billingStatus.textContent = c.paymentPending;
-          setTimeout(loadMe, 3000);
-        }
-      });
-    } catch (error) {
-      billingStatus.textContent = `${c.paymentFailed} ${error.message}`;
     }
   }
 
