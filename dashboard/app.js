@@ -12,6 +12,8 @@
   const refreshBtn = $('refreshBtn');
   const languageBtn = $('languageBtn');
   const taskResult = $('taskResult');
+  const plansBox = $('plans');
+  const billingStatus = $('billingStatus');
 
   const copy = {
     fa: {
@@ -24,7 +26,9 @@
       required: 'Repository و درخواست الزامی هستند.', connectFirst: 'ابتدا GitHub را وصل کنید.',
       taskStatus: 'وضعیت کار', queued: 'در صف', running: 'در حال اجرا', planning: 'در حال تحلیل',
       branch_created: 'Branch ساخته شد', committed: 'Commit ساخته شد', pr_created: 'Pull Request ساخته شد',
-      completed: 'تکمیل شد', noChanges: 'تغییری لازم نبود.'
+      completed: 'تکمیل شد', noChanges: 'تغییری لازم نبود.', billingTitle: 'خرید Credits',
+      buyStars: 'پرداخت با Telegram Stars', buyCrypto: 'پرداخت با USDT روی TON', cryptoNote: 'پرداخت کریپتو در صفحه امن خارج از Telegram باز می‌شود.',
+      paymentStarting: 'در حال ساخت پرداخت...', paymentPaid: 'پرداخت تأیید شد و Credits اضافه شد.', paymentPending: 'در انتظار تأیید پرداخت...', paymentFailed: 'پرداخت ایجاد نشد.'
     },
     en: {
       dir: 'ltr', title: 'Coding Agent', ready: 'Ready', loading: 'Loading...', connected: 'GitHub connected',
@@ -36,7 +40,9 @@
       required: 'Repository and request are required.', connectFirst: 'Connect GitHub first.',
       taskStatus: 'Task status', queued: 'Queued', running: 'Running', planning: 'Planning',
       branch_created: 'Branch created', committed: 'Commit created', pr_created: 'Pull Request created',
-      completed: 'Completed', noChanges: 'No changes were needed.'
+      completed: 'Completed', noChanges: 'No changes were needed.', billingTitle: 'Buy Credits',
+      buyStars: 'Pay with Telegram Stars', buyCrypto: 'Pay with USDT on TON', cryptoNote: 'Crypto checkout opens in a secure external page.',
+      paymentStarting: 'Creating payment...', paymentPaid: 'Payment confirmed and Credits added.', paymentPending: 'Waiting for payment confirmation...', paymentFailed: 'Could not create payment.'
     },
     hi: {
       dir: 'ltr', title: 'कोडिंग एजेंट', ready: 'तैयार', loading: 'लोड हो रहा है...', connected: 'GitHub कनेक्ट है',
@@ -48,12 +54,15 @@
       required: 'Repository और अनुरोध आवश्यक हैं।', connectFirst: 'पहले GitHub कनेक्ट करें।',
       taskStatus: 'कार्य स्थिति', queued: 'कतार में', running: 'चल रहा है', planning: 'विश्लेषण हो रहा है',
       branch_created: 'Branch बनाई गई', committed: 'Commit बनाया गया', pr_created: 'Pull Request बनाया गया',
-      completed: 'पूरा हुआ', noChanges: 'कोई बदलाव आवश्यक नहीं था।'
+      completed: 'पूरा हुआ', noChanges: 'कोई बदलाव आवश्यक नहीं था।', billingTitle: 'Credits खरीदें',
+      buyStars: 'Telegram Stars से भुगतान', buyCrypto: 'TON पर USDT से भुगतान', cryptoNote: 'Crypto checkout एक सुरक्षित बाहरी पेज में खुलेगा।',
+      paymentStarting: 'भुगतान बनाया जा रहा है...', paymentPaid: 'भुगतान की पुष्टि हो गई और Credits जोड़ दिए गए।', paymentPending: 'भुगतान की पुष्टि का इंतजार...', paymentFailed: 'भुगतान नहीं बनाया जा सका।'
     }
   };
 
   let lang = localStorage.getItem('xai_lang') || 'fa';
   let me = null;
+  let plans = [];
   const initData = tg?.initData || '';
 
   function headers() {
@@ -85,10 +94,12 @@
     taskBtn.textContent = c.send;
     $('accountTitle').textContent = c.account;
     $('creditsLabel').textContent = c.credits;
+    $('billingTitle').textContent = c.billingTitle;
     languageBtn.textContent = 'English / हिन्दी / فارسی';
     $('requestInput').placeholder = lang === 'fa' ? 'مثلاً: خطای ورود را پیدا و اصلاح کن' : lang === 'hi' ? 'उदाहरण: लॉगिन की समस्या खोजकर ठीक करें' : 'Example: find and fix the login error';
     $('plan').textContent = me?.plan || '—';
     $('credits').textContent = me?.credits ?? '—';
+    renderPlans();
   }
 
   function showRepos(items) {
@@ -103,6 +114,103 @@
       button.addEventListener('click', () => { $('repoInput').value = repo.full_name; });
       box.appendChild(button);
     });
+  }
+
+  function renderPlans() {
+    const c = copy[lang] || copy.fa;
+    if (!plansBox) return;
+    plansBox.innerHTML = '';
+    plans.forEach((plan) => {
+      const card = document.createElement('div');
+      card.className = 'plan-card';
+      const title = document.createElement('h3');
+      title.textContent = plan.title;
+      const details = document.createElement('div');
+      details.className = 'plan-details';
+      details.textContent = `$${plan.price_usd} · ${plan.credits} Credits${plan.duration_days ? ` · ${plan.duration_days} days` : ''}`;
+      const stars = document.createElement('button');
+      stars.className = 'primary';
+      stars.type = 'button';
+      stars.textContent = `${c.buyStars} · ${plan.stars} XTR`;
+      stars.addEventListener('click', () => buyStars(plan.key));
+      const crypto = document.createElement('button');
+      crypto.className = 'ghost full';
+      crypto.type = 'button';
+      crypto.textContent = c.buyCrypto;
+      crypto.addEventListener('click', () => buyCrypto(plan.key));
+      const note = document.createElement('small');
+      note.textContent = c.cryptoNote;
+      card.append(title, details, stars, crypto, note);
+      plansBox.appendChild(card);
+    });
+  }
+
+  async function loadPlans() {
+    try {
+      const data = await api('/api/miniapp/billing/plans');
+      plans = data.plans || [];
+      renderPlans();
+    } catch (error) {
+      billingStatus.textContent = error.message;
+    }
+  }
+
+  async function buyStars(planKey) {
+    const c = copy[lang] || copy.fa;
+    billingStatus.textContent = c.paymentStarting;
+    try {
+      const data = await api('/api/miniapp/billing/stars', {
+        method: 'POST', body: JSON.stringify({ plan: planKey })
+      });
+      if (!tg?.openInvoice) throw new Error('Telegram invoice is unavailable');
+      tg.openInvoice(data.invoice_url, (statusValue) => {
+        if (statusValue === 'paid') {
+          billingStatus.textContent = c.paymentPaid;
+          loadMe();
+        } else if (statusValue === 'pending') {
+          billingStatus.textContent = c.paymentPending;
+          setTimeout(loadMe, 3000);
+        }
+      });
+    } catch (error) {
+      billingStatus.textContent = `${c.paymentFailed} ${error.message}`;
+    }
+  }
+
+  async function buyCrypto(planKey) {
+    const c = copy[lang] || copy.fa;
+    billingStatus.textContent = c.paymentStarting;
+    try {
+      const data = await api('/api/miniapp/billing/crypto', {
+        method: 'POST', body: JSON.stringify({ plan: planKey })
+      });
+      if (tg?.openLink) tg.openLink(data.checkout_url);
+      else window.open(data.checkout_url, '_blank');
+      billingStatus.textContent = c.paymentPending;
+      pollCryptoPayment(data.order_id);
+    } catch (error) {
+      billingStatus.textContent = `${c.paymentFailed} ${error.message}`;
+    }
+  }
+
+  async function pollCryptoPayment(orderId) {
+    const c = copy[lang] || copy.fa;
+    for (let i = 0; i < 72; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      try {
+        const response = await fetch(`/api/payments/ton/status/${encodeURIComponent(orderId)}`);
+        const data = await response.json();
+        if (data.status === 'paid') {
+          billingStatus.textContent = c.paymentPaid;
+          await loadMe();
+          return;
+        }
+        if (data.status === 'expired') {
+          billingStatus.textContent = c.paymentFailed;
+          return;
+        }
+      } catch (_) {}
+    }
   }
 
   async function loadMe() {
@@ -203,5 +311,6 @@
   });
 
   render();
+  loadPlans();
   loadMe();
 })();
