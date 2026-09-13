@@ -4,6 +4,8 @@ services:
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
+    healthCheckPath: /health
+    maxShutdownDelaySeconds: 60
     envVars:
       - key: BOT_TOKEN
         sync: false
@@ -25,6 +27,16 @@ services:
         sync: false
       - key: PUBLIC_BASE_URL
         sync: false
+      - key: MINIAPP_URL
+        sync: false
+      - key: TONCENTER_API_KEY
+        sync: false
+      - key: TON_PAYMENT_ADDRESS
+        sync: false
+      - key: TON_USDT_MASTER_ADDRESS
+        value: EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs
+      - key: TON_PAYMENT_EXPIRY_MINUTES
+        value: "30"
       - key: CODE_AGENT_API_KEY
         sync: false
       - key: TELEGRAM_ADMIN_IDS
