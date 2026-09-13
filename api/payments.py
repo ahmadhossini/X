@@ -7,6 +7,7 @@ from fastapi.responses import RedirectResponse
 
 from billing.crypto import create_invoice, verify_checkout_token
 from billing.payments import activate_paid_plan
+from billing.plans import get_plan
 from core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -44,8 +45,20 @@ def crypto_webhook(secret: str, update: dict) -> dict[str, bool]:
     try:
         telegram_id_text, plan_key = payload.split(":", 1)
         telegram_id = int(telegram_id_text)
+        plan = get_plan(plan_key)
     except (ValueError, TypeError):
         logger.warning("Invalid Crypto Pay invoice payload")
+        return {"ok": True}
+
+    if invoice.get("currency_type") != "fiat" or invoice.get("fiat") != "USD":
+        logger.warning("Rejected non-USD Crypto Pay invoice")
+        return {"ok": True}
+
+    try:
+        if int(float(invoice.get("amount") or 0)) != plan.price_usd:
+            logger.warning("Rejected Crypto Pay invoice with unexpected amount")
+            return {"ok": True}
+    except (TypeError, ValueError):
         return {"ok": True}
 
     invoice_id = invoice.get("invoice_id")
@@ -59,7 +72,7 @@ def crypto_webhook(secret: str, update: dict) -> dict[str, bool]:
             plan_key,
             "cryptopay",
             str(invoice_id),
-            int(float(invoice.get("amount") or 0)),
+            plan.price_usd,
             asset=paid_asset,
             raw_payload=invoice,
         )
