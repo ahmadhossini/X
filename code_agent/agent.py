@@ -98,9 +98,12 @@ Return ONLY valid JSON with this shape:
 Rules: only propose concrete source changes needed for the request; never invent test results; preserve unrelated code; use full replacement content; max 8 changed files; never touch .git, secrets, credentials, private keys, or CI workflow files. Delete only when explicitly required by the user request. If no safe change is possible, return an empty changes array.
 CONTEXT:
 {json.dumps(context, ensure_ascii=False)}'''
-    client = genai.Client(api_key=api_key)
-    response = await client.aio.models.generate_content(model=model or "gemini-2.5-flash", contents=prompt)
-    text = (response.text or "").strip()
+    async with genai.Client(api_key=api_key).aio as client:
+        response = await client.models.generate_content(
+            model=model or "gemini-2.5-flash",
+            contents=prompt,
+        )
+        text = (response.text or "").strip()
 
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text, count=1, flags=re.IGNORECASE)
@@ -181,8 +184,6 @@ async def reconcile_task(repo: GitHubRepo, base: str, request: str, task_id: str
             return {"status": "committed", "summary": "Recovered existing task commit.", "changes": [], "commit": marker_sha, "branch": branch}
         return None
 
-    # The commit exists but the branch does not. Reattach it only when its
-    # parent is the exact base commit used for this task.
     marker_details = await repo.commit(marker_sha)
     parents = marker_details.get("parents")
     parent_sha = parents[0].get("sha") if isinstance(parents, list) and parents and isinstance(parents[0], dict) else None
@@ -211,10 +212,7 @@ async def execute_task(
         base = metadata.get("default_branch", "main")
 
         if task_id:
-            try:
-                recovered = await reconcile_task(repo, base, request, task_id)
-            except GitHubRepoError:
-                raise
+            recovered = await reconcile_task(repo, base, request, task_id)
             if recovered is not None:
                 result = recovered
                 if create_pr:
