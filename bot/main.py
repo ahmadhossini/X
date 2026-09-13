@@ -12,6 +12,7 @@ from api.github_connect import create_connect_state
 from billing.service import BillingError, ensure_user_credit_state, estimate_task_credits, reserve_task_credits
 from bot.chat import handle_chat_message
 from bot.locales import t
+from bot.payments import register_payment_handlers
 from code_agent.github_app import github_app_get
 from core.config import settings
 from database.models import GitHubInstallation, User
@@ -115,9 +116,9 @@ def _main_keyboard(language: str) -> types.ReplyKeyboardMarkup:
 
 def _set_user_commands(bot: TeleBot, user_id: int, language: str) -> None:
     descriptions = {
-        "en": {"start": "Start XAI Code Agent", "connect": "Connect GitHub", "repos": "List repositories", "task": "Create a code change", "balance": "Show credits and plan", "language": "Change language", "disconnect": "Disconnect GitHub", "help": "Show help"},
-        "hi": {"start": "XAI Code Agent शुरू करें", "connect": "GitHub कनेक्ट करें", "repos": "Repositories देखें", "task": "Code change बनाएँ", "balance": "क्रेडिट और प्लान देखें", "language": "भाषा बदलें", "disconnect": "GitHub डिस्कनेक्ट करें", "help": "मदद देखें"},
-        "fa": {"start": "شروع XAI Code Agent", "connect": "اتصال GitHub", "repos": "نمایش مخزن‌ها", "task": "ایجاد تغییر کد", "balance": "نمایش اعتبار و پلن", "language": "تغییر زبان", "disconnect": "قطع اتصال GitHub", "help": "نمایش راهنما"},
+        "en": {"start": "Start XAI Code Agent", "connect": "Connect GitHub", "repos": "List repositories", "task": "Create a code change", "balance": "Show credits and plan", "buy": "Buy Pro", "language": "Change language", "disconnect": "Disconnect GitHub", "help": "Show help"},
+        "hi": {"start": "XAI Code Agent शुरू करें", "connect": "GitHub कनेक्ट करें", "repos": "Repositories देखें", "task": "Code change बनाएँ", "balance": "क्रेडिट और प्लान देखें", "buy": "Pro खरीदें", "language": "भाषा बदलें", "disconnect": "GitHub डिस्कनेक्ट करें", "help": "मदद देखें"},
+        "fa": {"start": "شروع XAI Code Agent", "connect": "اتصال GitHub", "repos": "نمایش مخزن‌ها", "task": "ایجاد تغییر کد", "balance": "نمایش اعتبار و پلن", "buy": "خرید Pro", "language": "تغییر زبان", "disconnect": "قطع اتصال GitHub", "help": "نمایش راهنما"},
     }
     d = descriptions.get(language, descriptions["en"])
     bot.set_my_commands([types.BotCommand(command, description) for command, description in d.items()], scope=types.BotCommandScopeChat(user_id))
@@ -337,4 +338,5 @@ def build_bot() -> TeleBot:
         elif not text.startswith("/"):
             handle_chat_message(bot, message)
 
+    register_payment_handlers(bot)
     return bot
