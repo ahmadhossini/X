@@ -32,7 +32,7 @@ def _now() -> datetime:
 
 
 def recover_stale_tasks() -> int:
-    """Requeue expired work so the persistent worker can reconcile it safely."""
+    """Stop expired active work conservatively; never blindly re-run side effects."""
     cutoff = _now() - timedelta(seconds=CLAIM_LEASE_SECONDS)
     recovered = 0
     with SessionLocal() as db:
@@ -47,15 +47,15 @@ def recover_stale_tasks() -> int:
             )
         )
         for task in stale:
-            task.status = "queued"
+            task.status = "failed"
+            task.error = "Worker lease expired; task stopped to prevent duplicate repository side effects."
             task.worker_id = None
-            task.locked_at = None
-            task.error = None
+            task.completed_at = _now()
             recovered += 1
         if recovered:
             db.commit()
     if recovered:
-        logger.warning("Requeued %s stale task(s) for crash recovery", recovered)
+        logger.error("Stopped %s stale task(s) after lease expiry; no automatic re-execution", recovered)
     return recovered
 
 
@@ -95,16 +95,6 @@ def _lease_heartbeat(stop_event: threading.Event, task_id: str, worker_id: str) 
             logger.exception("Task heartbeat failed task_id=%s", task_id)
 
 
-def _run_async(func, *args):
-    loop = asyncio.new_event_loop()
-    try:
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(func(*args))
-    finally:
-        loop.close()
-        asyncio.set_event_loop(None)
-
-
 def _notify(task: Task, success: bool, result: dict | None = None) -> None:
     if not task.chat_id:
         return
@@ -128,11 +118,11 @@ def _notify(task: Task, success: bool, result: dict | None = None) -> None:
             text += f"\nPR: {pr_url}"
     else:
         if lang == "fa":
-            text = "اجرای کار ناموفق بود و اعتبار رزرو‌شده برگردانده شد."
+            text = "اجرای کار متوقف یا ناموفق شد. برای جلوگیری از تغییر تکراری، اعتبار در صورت ایجاد تغییر مخزن به‌صورت خودکار بازگردانده نمی‌شود."
         elif lang == "hi":
-            text = "कार्य विफल हुआ और आरक्षित क्रेडिट वापस कर दिए गए।"
+            text = "कार्य रुक गया या विफल हुआ। दोबारा repository बदलाव से बचने के लिए, repository में बदलाव होने की स्थिति में क्रेडिट अपने-आप वापस नहीं किए जाते।"
         else:
-            text = "The task failed and the reserved credits were refunded."
+            text = "The task stopped or failed. Credits are not automatically refunded when repository side effects may have occurred."
     try:
         bot.send_message(task.chat_id, text[:4000])
     except Exception:
@@ -148,16 +138,17 @@ def _execute_claimed(task: Task, worker_id: str) -> None:
     heartbeat.start()
     side_effects_applied = False
     try:
-        result = _run_async(
-            execute_task,
-            settings.gemini_api_key,
-            settings.gemini_model,
-            task.repository,
-            task.request,
-            task.installation_id,
-            True,
-            task.language,
-            task.id,
+        result = asyncio.run(
+            execute_task(
+                settings.gemini_api_key,
+                settings.gemini_model,
+                task.repository,
+                task.request,
+                task.installation_id,
+                True,
+                task.language,
+                task.id,
+            )
         )
         if result.get("status") == "no_changes":
             fail_task(task.id, settings.gemini_model, "no_changes", refund=True)
