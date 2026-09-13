@@ -28,7 +28,7 @@ def _ensure_usage_table() -> None:
         db.commit()
 
 
-async def _generate_reply(text_value: str, language: str) -> str:
+def _generate_reply(text_value: str, language: str) -> str:
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured")
     language_name = {"fa": "Persian (Farsi)", "hi": "Hindi", "en": "English"}.get(language, "English")
@@ -39,11 +39,11 @@ async def _generate_reply(text_value: str, language: str) -> str:
         "Do not claim to have changed a GitHub repository unless a coding task was actually executed.\n\n"
         f"User message:\n{text_value}"
     )
-    client = genai.Client(api_key=settings.gemini_api_key)
-    response = await client.aio.models.generate_content(
-        model=settings.gemini_model or "gemini-2.5-flash",
-        contents=prompt,
-    )
+    with genai.Client(api_key=settings.gemini_api_key) as client:
+        response = client.models.generate_content(
+            model=settings.gemini_model or "gemini-2.5-flash",
+            contents=prompt,
+        )
     reply = (response.text or "").strip()
     if not reply:
         raise RuntimeError("Empty AI response")
@@ -119,20 +119,8 @@ def handle_chat_message(bot, message: Message) -> None:
         return
 
     try:
-        reply = _run_async(_generate_reply, text_value, language)
+        reply = _generate_reply(text_value, language)
         bot.reply_to(message, reply)
     except Exception:
         _release_last_free_message(message.from_user.id)
         bot.reply_to(message, t(language, "chat_error"))
-
-
-def _run_async(func, *args):
-    import asyncio
-
-    loop = asyncio.new_event_loop()
-    try:
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(func(*args))
-    finally:
-        loop.close()
-        asyncio.set_event_loop(None)
