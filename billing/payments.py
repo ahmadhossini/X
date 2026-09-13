@@ -48,8 +48,11 @@ def activate_paid_plan(
                 Payment.provider_payment_id == payment_id,
             ).with_for_update()
         )
-        if existing and existing.status == "paid":
-            return False
+        if existing:
+            if existing.user_id != user.id or existing.plan != plan.key:
+                raise ValueError("Payment does not belong to this user or plan")
+            if existing.status == "paid":
+                return False
 
         now = _now()
         active_sub = db.scalar(
@@ -121,8 +124,11 @@ def activate_topup(
                 Payment.provider_payment_id == payment_id,
             ).with_for_update()
         )
-        if existing and existing.status == "paid":
-            return False
+        if existing:
+            if existing.user_id != user.id or existing.plan != plan.key:
+                raise ValueError("Payment does not belong to this user or plan")
+            if existing.status == "paid":
+                return False
 
         now = _now()
         user.credits += plan.credits
