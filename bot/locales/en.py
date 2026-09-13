@@ -41,6 +41,7 @@ TEXTS = {
     "disconnect_button": "Disconnect GitHub",
     "connect_page_success": "GitHub connected. You can return to Telegram.",
     "connect_page_error": "GitHub connection could not be completed. Close this page and try again.",
-    "free_chat_limit": "You have used your 10 free messages for the last 24 hours. Coding tasks are separate and use your plan credits.",
+    "free_chat_limit": "You have used your 10 free messages for the last 24 hours. Buy Credits to continue.",
+    "buy_credits": "Buy Credits",
     "chat_error": "I could not generate a reply right now. Please try again later.",
 }
