@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import RedirectResponse
@@ -55,10 +56,11 @@ def crypto_webhook(secret: str, update: dict) -> dict[str, bool]:
         return {"ok": True}
 
     try:
-        if int(float(invoice.get("amount") or 0)) != plan.price_usd:
-            logger.warning("Rejected Crypto Pay invoice with unexpected amount")
-            return {"ok": True}
-    except (TypeError, ValueError):
+        paid_amount = Decimal(str(invoice.get("amount") or "0"))
+    except (InvalidOperation, ValueError, TypeError):
+        return {"ok": True}
+    if paid_amount != plan.price_usd:
+        logger.warning("Rejected Crypto Pay invoice with unexpected amount")
         return {"ok": True}
 
     invoice_id = invoice.get("invoice_id")
@@ -66,13 +68,17 @@ def crypto_webhook(secret: str, update: dict) -> dict[str, bool]:
         return {"ok": True}
 
     paid_asset = str(invoice.get("paid_asset") or invoice.get("asset") or "USDT")
+    if paid_asset not in {"USDT", "TON"}:
+        logger.warning("Rejected unsupported Crypto Pay asset: %s", paid_asset)
+        return {"ok": True}
+
     try:
         activated = activate_paid_plan(
             telegram_id,
             plan_key,
             "cryptopay",
             str(invoice_id),
-            plan.price_usd,
+            plan.price_usd_cents,
             asset=paid_asset,
             raw_payload=invoice,
         )
