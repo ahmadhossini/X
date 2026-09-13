@@ -12,7 +12,7 @@ from api.github_connect import create_connect_state
 from billing.service import BillingError, ensure_user_credit_state, estimate_task_credits, reserve_task_credits
 from bot.chat import handle_chat_message
 from bot.locales import t
-from bot.payments import register_payment_handlers
+from bot.payments import register_payment_handlers, show_plans
 from code_agent.github_app import github_app_get
 from core.config import settings
 from database.models import GitHubInstallation, User
@@ -323,7 +323,9 @@ def build_bot() -> TeleBot:
         user_id = message.from_user.id
         language = _language(user_id)
         text = (message.text or "").strip()
-        if text == t(language, "connect_menu_button"):
+        if text == "/buy":
+            show_plans(bot, message.chat.id)
+        elif text == t(language, "connect_menu_button"):
             connect_command(message)
         elif text == t(language, "repos_menu_button"):
             repositories(message)
