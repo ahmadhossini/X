@@ -3,8 +3,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
-import httpx
 import time
+
+import httpx
 
 from billing.plans import get_plan
 from core.config import settings
@@ -45,6 +46,7 @@ def verify_checkout_token(token: str) -> tuple[int, str]:
         expected = hmac.new(settings.crypto_pay_webhook_secret.encode(), body.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(signature, expected) or int(expires_text) < int(time.time()):
             raise ValueError
+        get_plan(plan_key)
         return int(telegram_id_text), plan_key
     except (ValueError, TypeError, UnicodeError, base64.binascii.Error) as exc:
         raise CryptoPayError("Invalid or expired checkout token") from exc
@@ -55,7 +57,7 @@ def create_invoice(telegram_id: int, plan_key: str) -> dict:
     payload = {
         "currency_type": "fiat",
         "fiat": "USD",
-        "amount": str(plan.price_usd),
+        "amount": f"{plan.price_usd:.2f}",
         "accepted_assets": "USDT,TON",
         "description": f"XAI Code Agent - {plan.title} - {plan.credits} Credits",
         "payload": f"{telegram_id}:{plan.key}",
