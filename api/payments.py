@@ -36,6 +36,7 @@ def ton_status(order_id: str) -> dict:
 def _checkout_html(order_id: str) -> str:
     safe_order = html.escape(order_id, quote=True)
     status_url = f"{settings.public_base_url}/api/payments/ton/status/{safe_order}"
+    details_url = f"{settings.public_base_url}/api/miniapp/billing/order/{safe_order}"
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -65,7 +66,6 @@ small{{color:#667085;line-height:1.6}}#status{{margin-top:16px;padding:12px;bord
 <small>Do not send another asset or another network. Credits are added only after the blockchain transaction is verified.</small>
 </div>
 <script>
-const orderId = {order_id!r};
 const statusUrl = {status_url!r};
 async function load() {{
   const response = await fetch(statusUrl);
@@ -80,11 +80,7 @@ async function load() {{
   }}
   return false;
 }}
-async function init() {{
-  const response = await fetch(statusUrl.replace('/status/', '/checkout/').replace('/api/payments/ton/checkout/', '/api/miniapp/billing/order/'));
-  if (!response.ok) return;
-}}
-fetch('/api/miniapp/billing/order/' + encodeURIComponent(orderId)).then(r => r.json()).then(data => {{
+fetch({details_url!r}).then(r => r.json()).then(data => {{
   document.getElementById('address').textContent = data.address || '';
   document.getElementById('amount').textContent = (data.amount_usdt || '') + ' USDT';
   document.getElementById('comment').textContent = data.comment || '';
