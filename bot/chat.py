@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from google import genai
 from sqlalchemy import select, text
+from telebot import types
 from telebot.types import Message
 
 from bot.locales import t
@@ -90,6 +91,14 @@ def _release_last_free_message(telegram_id: int) -> None:
         db.commit()
 
 
+def _purchase_markup(language: str):
+    url = settings.miniapp_url or f"{settings.public_base_url}/dashboard/"
+    label = t(language, "buy_credits")
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton(label, web_app=types.WebAppInfo(url=url)))
+    return markup
+
+
 def handle_chat_message(bot, message: Message) -> None:
     if not message.from_user or not message.text:
         return
@@ -106,7 +115,7 @@ def handle_chat_message(bot, message: Message) -> None:
 
     allowed, _remaining = _reserve_free_message(message.from_user.id)
     if not allowed:
-        bot.reply_to(message, t(language, "free_chat_limit"))
+        bot.reply_to(message, t(language, "free_chat_limit"), reply_markup=_purchase_markup(language))
         return
 
     try:
