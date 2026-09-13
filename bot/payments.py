@@ -12,22 +12,51 @@ from core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# These Star prices target roughly $10 / $20 of developer reward value.
-# Telegram's actual buyer price varies by country and purchase platform.
+# Star prices target the plan's approximate USD developer reward value.
 STAR_PRICES = {
-    "pro_monthly": 750,
-    "pro_quarterly": 1500,
+    "starter": 769,
+    "pro": 2307,
+    "team": 6154,
+    "topup": 384,
+}
+
+PLAN_LABELS = {
+    "starter": "Starter — $9.99 / 50 Credits",
+    "pro": "Pro — $29.99 / 200 Credits",
+    "team": "Team — $79.99 / 600 Credits",
+    "topup": "Top-Up — $4.99 / 20 Credits",
 }
 
 
 def show_plans(bot: TeleBot, chat_id: int) -> None:
     markup = types.InlineKeyboardMarkup()
-    markup.row(
-        types.InlineKeyboardButton("Pro 1 month — 750 Stars", callback_data="buy:pro_monthly:stars"),
-        types.InlineKeyboardButton("Pro 3 months — 1500 Stars", callback_data="buy:pro_quarterly:stars"),
+    for plan_key in ("starter", "pro", "team"):
+        plan = get_plan(plan_key)
+        markup.add(
+            types.InlineKeyboardButton(
+                PLAN_LABELS[plan_key],
+                callback_data=f"buy:{plan_key}:stars",
+            ),
+            types.InlineKeyboardButton(
+                f"Crypto ${plan.price_usd:.2f}",
+                callback_data=f"buy:{plan_key}:crypto",
+            ),
+        )
+    markup.add(
+        types.InlineKeyboardButton(
+            PLAN_LABELS["topup"],
+            callback_data="buy:topup:stars",
+        ),
+        types.InlineKeyboardButton(
+            "Crypto $4.99",
+            callback_data="buy:topup:crypto",
+        ),
     )
-    markup.row(types.InlineKeyboardButton("Crypto checkout (external)", callback_data="buy:crypto"))
-    bot.send_message(chat_id, "Choose a plan and payment method:", reply_markup=markup)
+    bot.send_message(
+        chat_id,
+        "Choose a plan. Crypto checkout accepts USDT or TON and opens outside Telegram.",
+        reply_markup=markup,
+    )
 
 
 def _send_stars_invoice(bot: TeleBot, chat_id: int, plan_key: str) -> None:
@@ -36,7 +65,7 @@ def _send_stars_invoice(bot: TeleBot, chat_id: int, plan_key: str) -> None:
     bot.send_invoice(
         chat_id=chat_id,
         title=plan.title,
-        description=f"XAI Code Agent: {plan.credits} coding Credits for {plan.duration_days} days.",
+        description=f"XAI Code Agent: {plan.credits} Credits for {plan.duration_days} days." if plan.subscription else f"XAI Code Agent: {plan.credits} Credits top-up.",
         invoice_payload=f"{chat_id}:{plan.key}",
         provider_token="",
         currency="XTR",
@@ -48,14 +77,14 @@ def _send_stars_invoice(bot: TeleBot, chat_id: int, plan_key: str) -> None:
 def _send_crypto_checkout(bot: TeleBot, chat_id: int, plan_key: str) -> None:
     if not settings.public_base_url:
         raise RuntimeError("PUBLIC_BASE_URL is not configured")
+    plan = get_plan(plan_key)
     token = make_checkout_token(chat_id, plan_key)
     url = f"{settings.public_base_url}/api/payments/crypto/checkout?token={token}"
-    plan = get_plan(plan_key)
     markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton(f"Open crypto checkout — ${plan.price_usd}", url=url))
+    markup.add(types.InlineKeyboardButton(f"Open crypto checkout — ${plan.price_usd:.2f}", url=url))
     bot.send_message(
         chat_id,
-        f"External crypto checkout: {plan.title}\nAmount: ${plan.price_usd}\nAccepted assets: USDT or TON\n\nThe crypto payment page opens outside the Telegram Mini App.",
+        f"External crypto checkout: {plan.title}\nAmount: ${plan.price_usd:.2f}\nAccepted assets: USDT or TON.",
         reply_markup=markup,
     )
 
@@ -72,14 +101,6 @@ def register_payment_handlers(bot: TeleBot) -> None:
             return
         parts = call.data.split(":")
         try:
-            if len(parts) == 2 and parts[1] == "crypto":
-                bot.answer_callback_query(call.id)
-                if call.message:
-                    markup = types.InlineKeyboardMarkup()
-                    for plan_key, label in (("pro_monthly", "Pro 1 month — $10"), ("pro_quarterly", "Pro 3 months — $20")):
-                        markup.add(types.InlineKeyboardButton(label, callback_data=f"buy:{plan_key}:crypto"))
-                    bot.send_message(call.message.chat.id, "Choose the plan for external crypto checkout:", reply_markup=markup)
-                return
             if len(parts) != 3:
                 raise ValueError
             _, plan_key, method = parts
@@ -104,7 +125,9 @@ def register_payment_handlers(bot: TeleBot) -> None:
         try:
             payload = query.invoice_payload or ""
             telegram_id_text, plan_key = payload.split(":", 1)
-            if int(telegram_id_text) != query.from_user.id or plan_key not in STAR_PRICES:
+            plan = get_plan(plan_key)
+            expected_stars = STAR_PRICES[plan_key]
+            if int(telegram_id_text) != query.from_user.id or query.currency != "XTR" or query.total_amount != expected_stars:
                 bot.answer_pre_checkout_query(query.id, ok=False, error_message="Invalid payment order")
                 return
             bot.answer_pre_checkout_query(query.id, ok=True)
@@ -119,15 +142,16 @@ def register_payment_handlers(bot: TeleBot) -> None:
             return
         try:
             telegram_id_text, plan_key = payment.invoice_payload.split(":", 1)
-            if int(telegram_id_text) != message.from_user.id:
-                raise ValueError("Telegram user mismatch")
             plan = get_plan(plan_key)
+            expected_stars = STAR_PRICES[plan_key]
+            if int(telegram_id_text) != message.from_user.id or payment.currency != "XTR" or payment.total_amount != expected_stars:
+                raise ValueError("Invalid Stars payment")
             activated = activate_paid_plan(
                 message.from_user.id,
                 plan_key,
                 "telegram_stars",
                 payment.telegram_payment_charge_id,
-                plan.price_usd,
+                plan.price_usd_cents,
                 asset="XTR",
                 raw_payload={
                     "invoice_payload": payment.invoice_payload,
@@ -136,7 +160,7 @@ def register_payment_handlers(bot: TeleBot) -> None:
                 },
             )
             if activated:
-                bot.send_message(message.chat.id, f"Payment successful. {plan.title} is now active and {plan.credits} Credits were added.")
+                bot.send_message(message.chat.id, f"Payment successful. {plan.title} is active and {plan.credits} Credits were added.")
             else:
                 bot.send_message(message.chat.id, "This payment was already processed.")
         except Exception:
