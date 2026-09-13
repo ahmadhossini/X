@@ -38,7 +38,7 @@ def _generate_reply(text_value: str, language: str) -> str:
     return reply[:4096]
 
 
-def _reserve_free_message(telegram_id: int) -> tuple[bool, int, int | None]:
+def _reserve_free_message(telegram_id: int) -> tuple[bool, int, tuple[int, datetime] | None]:
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=1)
     with SessionLocal() as db:
@@ -49,10 +49,9 @@ def _reserve_free_message(telegram_id: int) -> tuple[bool, int, int | None]:
             db.flush()
 
         used = db.scalar(
-            select(func.count(FreeChatUsage.id)).where(
-                FreeChatUsage.user_id == user.id,
-                FreeChatUsage.created_at >= since,
-            )
+            select(func.count())
+            .select_from(FreeChatUsage)
+            .where(FreeChatUsage.user_id == user.id, FreeChatUsage.created_at >= since)
         ) or 0
         if used >= FREE_CHAT_DAILY_LIMIT:
             db.rollback()
@@ -60,21 +59,21 @@ def _reserve_free_message(telegram_id: int) -> tuple[bool, int, int | None]:
 
         usage = FreeChatUsage(user_id=user.id, created_at=now)
         db.add(usage)
-        db.flush()
-        usage_id = usage.id
         db.commit()
-        return True, FREE_CHAT_DAILY_LIMIT - used - 1, usage_id
+        return True, FREE_CHAT_DAILY_LIMIT - used - 1, (user.id, now)
 
 
-def _release_free_message(telegram_id: int, usage_id: int | None) -> None:
-    if usage_id is None:
+def _release_free_message(telegram_id: int, usage_key: tuple[int, datetime] | None) -> None:
+    if usage_key is None:
         return
+    user_id, created_at = usage_key
     with SessionLocal() as db:
         usage = db.scalar(
-            select(FreeChatUsage)
-            .join(User, User.id == FreeChatUsage.user_id)
-            .where(FreeChatUsage.id == usage_id, User.telegram_id == telegram_id)
-            .with_for_update()
+            select(FreeChatUsage).where(
+                FreeChatUsage.user_id == user_id,
+                FreeChatUsage.created_at == created_at,
+                User.telegram_id == telegram_id,
+            ).select_from(FreeChatUsage).join(User, User.id == FreeChatUsage.user_id)
         )
         if usage:
             db.delete(usage)
@@ -103,7 +102,7 @@ def handle_chat_message(bot, message: Message) -> None:
         if user and user.language in {"fa", "en", "hi"}:
             language = user.language
 
-    allowed, _remaining, usage_id = _reserve_free_message(message.from_user.id)
+    allowed, _remaining, usage_key = _reserve_free_message(message.from_user.id)
     if not allowed:
         bot.reply_to(message, t(language, "free_chat_limit"), reply_markup=_purchase_markup(language))
         return
@@ -112,5 +111,5 @@ def handle_chat_message(bot, message: Message) -> None:
         reply = _generate_reply(text_value, language)
         bot.reply_to(message, reply)
     except Exception:
-        _release_free_message(message.from_user.id, usage_id)
+        _release_free_message(message.from_user.id, usage_key)
         bot.reply_to(message, t(language, "chat_error"))
