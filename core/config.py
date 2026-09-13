@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
-
 from dataclasses import dataclass
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -28,6 +28,8 @@ class Settings:
     github_app_private_key: str = os.getenv("GITHUB_APP_PRIVATE_KEY", "")
     github_webhook_secret: str = os.getenv("GITHUB_WEBHOOK_SECRET", "")
     github_connect_secret: str = os.getenv("GITHUB_CONNECT_SECRET", "")
+    crypto_pay_api_token: str = os.getenv("CRYPTO_PAY_API_TOKEN", "")
+    crypto_pay_webhook_secret: str = os.getenv("CRYPTO_PAY_WEBHOOK_SECRET", "")
     public_base_url: str = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
     code_agent_api_key: str = os.getenv("CODE_AGENT_API_KEY", "")
     telegram_admin_ids: tuple[int, ...] = tuple(
