@@ -9,11 +9,13 @@ from sqlalchemy import select
 from database.models import GitHubInstallation, Task, UsageRecord, User
 from database.session import SessionLocal
 
-FREE_DAILY_CREDITS = 0
+FREE_DAILY_CREDITS = 3
 PLAN_LIMITS = {
-    "free": 0,
-    "pro_monthly": 100,
-    "pro_quarterly": 350,
+    "free": FREE_DAILY_CREDITS,
+    "starter": 50,
+    "pro": 200,
+    "team": 600,
+    "topup": 20,
 }
 
 ACTIVE_TASK_STATUSES = (
