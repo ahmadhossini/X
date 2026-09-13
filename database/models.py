@@ -51,6 +51,7 @@ class Payment(Base):
     provider_payment_id: Mapped[str] = mapped_column(String(255), nullable=False)
     plan: Mapped[str] = mapped_column(String(32), nullable=False)
     amount_usd: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount_usd_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
     asset: Mapped[str] = mapped_column(String(16), default="USD", nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
     raw_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
