@@ -14,7 +14,6 @@ def utcnow() -> datetime:
 
 class User(Base):
     __tablename__ = "users"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
     github_login: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -29,15 +28,12 @@ class User(Base):
 class FreeChatUsage(Base):
     __tablename__ = "free_chat_usage"
     __table_args__ = (Index("ix_free_chat_usage_user_created", "user_id", "created_at"),)
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, index=True)
 
 
 class Subscription(Base):
     __tablename__ = "subscriptions"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     plan: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
@@ -53,7 +49,6 @@ class Subscription(Base):
 class Payment(Base):
     __tablename__ = "payments"
     __table_args__ = (UniqueConstraint("provider", "provider_payment_id", name="uq_payment_provider_id"),)
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     provider: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
@@ -70,7 +65,6 @@ class Payment(Base):
 
 class GitHubInstallation(Base):
     __tablename__ = "github_installations"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     installation_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
@@ -83,7 +77,6 @@ class GitHubInstallation(Base):
 
 class GitHubConnectState(Base):
     __tablename__ = "github_connect_states"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     state: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     telegram_id: Mapped[int] = mapped_column(BigInteger, index=True)
@@ -94,7 +87,6 @@ class GitHubConnectState(Base):
 
 class Repository(Base):
     __tablename__ = "repositories"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     github_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
     full_name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
@@ -105,7 +97,6 @@ class Repository(Base):
 
 class Task(Base):
     __tablename__ = "tasks"
-
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     installation_id: Mapped[int] = mapped_column(BigInteger, index=True)
@@ -128,7 +119,6 @@ class Task(Base):
 
 class UsageRecord(Base):
     __tablename__ = "usage_records"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     task_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
