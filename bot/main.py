@@ -23,13 +23,7 @@ SUPPORTED_LANGUAGES = {"en", "hi", "fa"}
 
 
 def _run_async(func, *args):
-    loop = asyncio.new_event_loop()
-    try:
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(func(*args))
-    finally:
-        loop.close()
-        asyncio.set_event_loop(None)
+    return asyncio.run(func(*args))
 
 
 def _get_or_create_user(telegram_id: int) -> User:
