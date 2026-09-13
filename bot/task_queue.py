@@ -95,16 +95,6 @@ def _lease_heartbeat(stop_event: threading.Event, task_id: str, worker_id: str) 
             logger.exception("Task heartbeat failed task_id=%s", task_id)
 
 
-def _run_async(func, *args):
-    loop = asyncio.new_event_loop()
-    try:
-        asyncio.set_event_loop(loop)
-        return loop.run_until_complete(func(*args))
-    finally:
-        loop.close()
-        asyncio.set_event_loop(None)
-
-
 def _notify(task: Task, success: bool, result: dict | None = None) -> None:
     if not task.chat_id:
         return
@@ -148,16 +138,17 @@ def _execute_claimed(task: Task, worker_id: str) -> None:
     heartbeat.start()
     side_effects_applied = False
     try:
-        result = _run_async(
-            execute_task,
-            settings.gemini_api_key,
-            settings.gemini_model,
-            task.repository,
-            task.request,
-            task.installation_id,
-            True,
-            task.language,
-            task.id,
+        result = asyncio.run(
+            execute_task(
+                settings.gemini_api_key,
+                settings.gemini_model,
+                task.repository,
+                task.request,
+                task.installation_id,
+                True,
+                task.language,
+                task.id,
+            )
         )
         if result.get("status") == "no_changes":
             fail_task(task.id, settings.gemini_model, "no_changes", refund=True)
