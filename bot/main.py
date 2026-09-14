@@ -83,10 +83,20 @@ def _connect_markup(telegram_id: int, language: str) -> types.InlineKeyboardMark
         base_url = settings.public_base_url.rstrip("/")
         if not base_url:
             raise RuntimeError("PUBLIC_BASE_URL is not configured")
-        markup.add(types.InlineKeyboardButton(t(language, "connect_button"), url=f"{base_url}/github/connect?state={state}"))
+        markup.add(
+            types.InlineKeyboardButton(
+                t(language, "connect_button"),
+                url=f"{base_url}/github/connect?state={state}",
+            )
+        )
     except Exception:
         logger.exception("Failed to create GitHub connect button")
-        markup.add(types.InlineKeyboardButton(t(language, "connect_button"), callback_data="github:config_error"))
+        markup.add(
+            types.InlineKeyboardButton(
+                t(language, "connect_button"),
+                callback_data="github:config_error",
+            )
+        )
     return markup
 
 
@@ -101,7 +111,7 @@ def _language_markup() -> types.InlineKeyboardMarkup:
 
 
 def _main_keyboard(language: str) -> types.InlineKeyboardMarkup:
-    """Native Telegram inline buttons: compact, clean and Telegram-rendered like glass controls."""
+    """Native Telegram inline controls; button labels contain no emoji."""
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.row(
         types.InlineKeyboardButton(t(language, "connect_menu_button"), callback_data="menu:connect"),
@@ -117,12 +127,42 @@ def _main_keyboard(language: str) -> types.InlineKeyboardMarkup:
 
 def _set_user_commands(bot: TeleBot, user_id: int, language: str) -> None:
     descriptions = {
-        "en": {"start": "Start XAI Code Agent", "connect": "Connect GitHub", "repos": "List repositories", "task": "Create a code change", "balance": "Show credits and plan", "language": "Change language", "disconnect": "Disconnect GitHub", "help": "Show help"},
-        "hi": {"start": "XAI Code Agent शुरू करें", "connect": "GitHub कनेक्ट करें", "repos": "Repositories देखें", "task": "Code change बनाएँ", "balance": "क्रेडिट और प्लान देखें", "language": "भाषा बदलें", "disconnect": "GitHub से संबंध हटाएँ", "help": "मदद देखें"},
-        "fa": {"start": "شروع XAI Code Agent", "connect": "اتصال GitHub", "repos": "نمایش مخزن‌ها", "task": "ایجاد تغییر کد", "balance": "نمایش اعتبار و پلن", "language": "تغییر زبان", "disconnect": "قطع اتصال GitHub", "help": "نمایش راهنما"},
+        "en": {
+            "start": "Start XAI Code Agent",
+            "connect": "Connect GitHub",
+            "repos": "List repositories",
+            "task": "Create a code change",
+            "balance": "Show credits and plan",
+            "language": "Change language",
+            "disconnect": "Disconnect GitHub",
+            "help": "Show help",
+        },
+        "hi": {
+            "start": "XAI Code Agent शुरू करें",
+            "connect": "GitHub कनेक्ट करें",
+            "repos": "Repositories देखें",
+            "task": "Code change बनाएँ",
+            "balance": "क्रेडिट और प्लान देखें",
+            "language": "भाषा बदलें",
+            "disconnect": "GitHub से संबंध हटाएँ",
+            "help": "मदद देखें",
+        },
+        "fa": {
+            "start": "شروع XAI Code Agent",
+            "connect": "اتصال GitHub",
+            "repos": "نمایش مخزن‌ها",
+            "task": "ایجاد تغییر کد",
+            "balance": "نمایش اعتبار و پلن",
+            "language": "تغییر زبان",
+            "disconnect": "قطع اتصال GitHub",
+            "help": "نمایش راهنما",
+        },
     }
     d = descriptions.get(language, descriptions["en"])
-    bot.set_my_commands([types.BotCommand(command, description) for command, description in d.items()], scope=types.BotCommandScopeChat(user_id))
+    bot.set_my_commands(
+        [types.BotCommand(command, description) for command, description in d.items()],
+        scope=types.BotCommandScopeChat(user_id),
+    )
 
 
 def _language_prompt() -> str:
@@ -152,7 +192,12 @@ def build_bot() -> TeleBot:
         if len(payload) > 1 and payload[1] == "github_connected":
             installation = _installation(user_id)
             if installation:
-                bot.reply_to(message, t(language, "github_connected", login=installation.github_login or "GitHub"), reply_markup=_main_keyboard(language), parse_mode="HTML")
+                bot.reply_to(
+                    message,
+                    t(language, "github_connected", login=installation.github_login or "GitHub"),
+                    reply_markup=_main_keyboard(language),
+                    parse_mode="HTML",
+                )
                 return
         bot.reply_to(message, t(language, "welcome"), reply_markup=_main_keyboard(language), parse_mode="HTML")
 
@@ -175,7 +220,12 @@ def build_bot() -> TeleBot:
         language = _language(user_id)
         try:
             credits, plan = ensure_user_credit_state(user_id)
-            bot.reply_to(message, t(language, "balance", credits=credits, plan=plan), reply_markup=_main_keyboard(language), parse_mode="HTML")
+            bot.reply_to(
+                message,
+                t(language, "balance", credits=credits, plan=plan),
+                reply_markup=_main_keyboard(language),
+                parse_mode="HTML",
+            )
         except BillingError:
             bot.reply_to(message, t(language, "billing_error"), reply_markup=_main_keyboard(language))
 
@@ -186,31 +236,13 @@ def build_bot() -> TeleBot:
         language = _language(message.from_user.id)
         bot.reply_to(message, t(language, "choose_language"), reply_markup=_language_markup(), parse_mode="HTML")
 
-    @bot.callback_query_handler(func=lambda call: bool(call.data and call.data.startswith("start:")))
-    def start_action_callback(call: CallbackQuery) -> None:
-        if not call.from_user or not call.data:
-            return
-        language = _language(call.from_user.id)
-        action = call.data.split(":", 1)[1]
-        bot.answer_callback_query(call.id)
-        if not call.message:
-            return
-        if action == "connect":
-            bot.send_message(call.message.chat.id, t(language, "connect_button_hint"), reply_markup=_connect_markup(call.from_user.id, language), parse_mode="HTML")
-        elif action == "repos":
-            repositories(call.message)
-        elif action == "task":
-            bot.send_message(call.message.chat.id, t(language, "task_format"), reply_markup=_main_keyboard(language), parse_mode="HTML")
-
     @bot.callback_query_handler(func=lambda call: bool(call.data and call.data.startswith("menu:")))
     def menu_callback(call: CallbackQuery) -> None:
-        if not call.from_user or not call.data:
+        if not call.from_user or not call.data or not call.message:
             return
         language = _language(call.from_user.id)
         action = call.data.split(":", 1)[1]
         bot.answer_callback_query(call.id)
-        if not call.message:
-            return
         if action == "connect":
             connect_command(call.message)
         elif action == "repos":
@@ -235,7 +267,12 @@ def build_bot() -> TeleBot:
             _set_user_commands(bot, call.from_user.id, language)
             bot.answer_callback_query(call.id, t(language, "language_selected"))
             if call.message:
-                bot.send_message(call.message.chat.id, t(language, "welcome"), reply_markup=_main_keyboard(language), parse_mode="HTML")
+                bot.send_message(
+                    call.message.chat.id,
+                    t(language, "welcome"),
+                    reply_markup=_main_keyboard(language),
+                    parse_mode="HTML",
+                )
         except Exception:
             logger.exception("Language selection failed")
             try:
@@ -267,9 +304,17 @@ def build_bot() -> TeleBot:
             if not user:
                 bot.reply_to(message, t(language, "github_not_connected"), reply_markup=_main_keyboard(language))
                 return
-            count = db.query(GitHubInstallation).filter(GitHubInstallation.user_id == user.id, GitHubInstallation.active.is_(True)).update({"active": False})
+            count = (
+                db.query(GitHubInstallation)
+                .filter(GitHubInstallation.user_id == user.id, GitHubInstallation.active.is_(True))
+                .update({"active": False})
+            )
             db.commit()
-        bot.reply_to(message, t(language, "github_disconnected") if count else t(language, "github_not_connected"), reply_markup=_main_keyboard(language))
+        bot.reply_to(
+            message,
+            t(language, "github_disconnected") if count else t(language, "github_not_connected"),
+            reply_markup=_main_keyboard(language),
+        )
 
     @bot.message_handler(commands=["repos"])
     def repositories(message: Message) -> None:
@@ -279,7 +324,7 @@ def build_bot() -> TeleBot:
         language = _language(user_id)
         installation = _installation(user_id)
         if not installation:
-            bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(user_id, language), parse_mode="HTML")
+            bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(user_id, language))
             return
         try:
             data = _run_async(github_app_get, "/installation/repositories?per_page=100", installation.installation_id)
@@ -287,8 +332,12 @@ def build_bot() -> TeleBot:
             if not repos:
                 bot.reply_to(message, t(language, "repos_empty"), reply_markup=_main_keyboard(language))
                 return
-            lines = [f"• {repo.get('full_name')}" for repo in repos[:50] if repo.get("full_name")]
-            bot.reply_to(message, t(language, "repos_title") + "\n\n" + "\n".join(lines), reply_markup=_main_keyboard(language), parse_mode="HTML")
+            lines = [f"· {repo.get('full_name')}" for repo in repos[:50] if repo.get("full_name")]
+            bot.reply_to(
+                message,
+                t(language, "repos_title") + "\n\n" + "\n".join(lines),
+                reply_markup=_main_keyboard(language),
+            )
         except Exception:
             logger.exception("Failed to list repositories")
             bot.reply_to(message, t(language, "github_error"), reply_markup=_main_keyboard(language))
@@ -340,7 +389,11 @@ def build_bot() -> TeleBot:
                     credits, plan = ensure_user_credit_state(user_id)
                 except BillingError:
                     credits, plan = 0, "free"
-                bot.reply_to(message, t(language, "insufficient_credits", credits=credits, required=estimated_credits, plan=plan), reply_markup=_main_keyboard(language))
+                bot.reply_to(
+                    message,
+                    t(language, "insufficient_credits", credits=credits, required=estimated_credits, plan=plan),
+                    reply_markup=_main_keyboard(language),
+                )
             elif str(exc) == "Active task already exists":
                 bot.reply_to(message, t(language, "task_already_running"), reply_markup=_main_keyboard(language))
             else:
@@ -357,10 +410,8 @@ def build_bot() -> TeleBot:
     def text_handler(message: Message) -> None:
         if not message.from_user:
             return
-        user_id = message.from_user.id
-        language = _language(user_id)
         text = (message.text or "").strip()
-        if not text.startswith("/"):
+        if text and not text.startswith("/"):
             handle_chat_message(bot, message)
 
     return bot
