@@ -50,7 +50,7 @@ async def _generate_reply(text_value: str, language: str) -> str:
     return reply[:4096]
 
 
-def _reserve_free_message(telegram_id: int) -> tuple[bool, int]:
+def _reserve_free_message(telegram_id: int) -> tuple[bool, int, datetime | None]:
     _ensure_usage_table()
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=1)
@@ -67,26 +67,25 @@ def _reserve_free_message(telegram_id: int) -> tuple[bool, int]:
         ) or 0
         if used >= FREE_CHAT_DAILY_LIMIT:
             db.rollback()
-            return False, 0
+            return False, 0, None
 
         db.execute(
             text("INSERT INTO free_chat_usage (user_id, created_at) VALUES (:user_id, :created_at)"),
             {"user_id": user.id, "created_at": now},
         )
         db.commit()
-        return True, FREE_CHAT_DAILY_LIMIT - used - 1
+        return True, FREE_CHAT_DAILY_LIMIT - used - 1, now
 
 
-def _release_last_free_message(telegram_id: int) -> None:
+def _release_free_message(telegram_id: int, reserved_at: datetime) -> None:
     with SessionLocal() as db:
         db.execute(
             text(
                 "DELETE FROM free_chat_usage WHERE user_id = "
                 "(SELECT id FROM users WHERE telegram_id = :telegram_id) "
-                "AND created_at = (SELECT MAX(created_at) FROM free_chat_usage WHERE user_id = "
-                "(SELECT id FROM users WHERE telegram_id = :telegram_id))"
+                "AND created_at = :reserved_at"
             ),
-            {"telegram_id": telegram_id},
+            {"telegram_id": telegram_id, "reserved_at": reserved_at},
         )
         db.commit()
 
@@ -113,7 +112,7 @@ def handle_chat_message(bot, message: Message) -> None:
         if user and user.language in {"fa", "en", "hi"}:
             language = user.language
 
-    allowed, _remaining = _reserve_free_message(message.from_user.id)
+    allowed, _remaining, reservation_at = _reserve_free_message(message.from_user.id)
     if not allowed:
         bot.reply_to(message, t(language, "free_chat_limit"), reply_markup=_purchase_markup(language))
         return
@@ -122,7 +121,8 @@ def handle_chat_message(bot, message: Message) -> None:
         reply = _run_async(_generate_reply, text_value, language)
         bot.reply_to(message, reply)
     except Exception:
-        _release_last_free_message(message.from_user.id)
+        if reservation_at is not None:
+            _release_free_message(message.from_user.id, reservation_at)
         bot.reply_to(message, t(language, "chat_error"))
 
 
