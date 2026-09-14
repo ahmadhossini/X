@@ -100,10 +100,14 @@ def _language_markup() -> types.InlineKeyboardMarkup:
     return markup
 
 
+def _miniapp_url() -> str:
+    return (settings.miniapp_url or f"{settings.public_base_url.rstrip('/')}/dashboard/").rstrip("/")
+
+
 def _main_keyboard(language: str) -> types.ReplyKeyboardMarkup:
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
-        types.KeyboardButton(t(language, "brand_button")),
+        types.KeyboardButton(t(language, "brand_button"), web_app=types.WebAppInfo(url=_miniapp_url())),
         types.KeyboardButton(t(language, "connect_menu_button")),
         types.KeyboardButton(t(language, "repos_menu_button")),
         types.KeyboardButton(t(language, "task_menu_button")),
