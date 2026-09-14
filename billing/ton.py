@@ -237,8 +237,18 @@ def _find_matching_transfer(created_at: int, amount_units: int, comment: str) ->
     response.raise_for_status()
     data = response.json()
     transfers = data.get("jetton_transfers") or []
+    expected_destination = settings.ton_payment_address.strip()
+    expected_master = _usdt_master()
     for transfer in transfers:
         if transfer.get("transaction_aborted"):
+            continue
+        # Defense in depth: verify the indexed transfer still points to the
+        # configured receiver and USDT master, not only the query parameters.
+        if str(transfer.get("destination") or "") != expected_destination:
+            continue
+        if str(transfer.get("jetton_master") or "") != expected_master:
+            continue
+        if not str(transfer.get("transaction_hash") or ""):
             continue
         try:
             transfer_time = int(transfer.get("utime") or transfer.get("transaction_utime") or 0)
@@ -317,13 +327,3 @@ def _telegram_id_for_order(order_id: str) -> int:
             raise TonPaymentError("Order owner not found")
         return int(row)
 
-
-def _payment_is_paid(order_id: str) -> bool:
-    with SessionLocal() as db:
-        row = db.scalar(
-            select(Payment.status).where(
-                Payment.provider == "ton_direct",
-                Payment.provider_payment_id == order_id,
-            )
-        )
-        return row == "paid"
