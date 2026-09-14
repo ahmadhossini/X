@@ -1,1 +1,0 @@
-Temporary validation marker for Telegram Stars removal branch.
