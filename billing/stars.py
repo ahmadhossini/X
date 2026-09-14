@@ -1,0 +1,1 @@
+# Telegram Stars payment module intentionally removed. Use direct USDT on TON.
