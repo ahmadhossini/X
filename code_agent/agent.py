@@ -154,43 +154,39 @@ async def reconcile_task(repo: GitHubRepo, base: str, request: str, task_id: str
     except GitHubRepoError:
         branch_head = None
 
-    # Prefer the deterministic task branch. A retry commit contains the same
-    # task marker, so recovering the branch head is safe even after several
-    # validation-repair commits.
     if branch_head is not None:
         head_sha = str(branch_head.get("sha") or "")
         head_message = str(((branch_head.get("commit") or {}).get("message") or ""))
         if marker in head_message:
-            return {
-                "status": "committed",
-                "summary": "Recovered existing task branch.",
-                "changes": [],
-                "commit": head_sha,
-                "branch": branch,
-            }
+            return {"status": "committed", "summary": "Recovered existing task branch.", "changes": [], "commit": head_sha, "branch": branch}
 
-        # The branch may have been advanced by a retry commit whose message
-        # includes the marker. Walk recent branch commits to find that marker.
-        try:
-            commits = await repo.branch_commits(branch, limit=20)
-        except GitHubRepoError:
-            commits = []
-        for commit in commits:
-            message = str(((commit.get("commit") or {}).get("message") or ""))
-            if marker in message:
-                sha = str(commit.get("sha") or "")
-                if sha:
-                    return {
-                        "status": "committed",
-                        "summary": "Recovered existing task branch.",
-                        "changes": [],
-                        "commit": head_sha,
-                        "branch": branch,
-                    }
+        # Preserve the original crash-recovery fast-forward case: if the
+        # original task commit was created but the branch ref update was lost,
+        # attaching it is safe only when its parent is the current branch head.
+        marker_commit = await repo.find_task_commit(marker)
+        if marker_commit is not None:
+            marker_sha = str(marker_commit.get("sha") or "")
+            parents = marker_commit.get("parents")
+            parent_sha = parents[0].get("sha") if isinstance(parents, list) and parents and isinstance(parents[0], dict) else None
+            if marker_sha and parent_sha == head_sha:
+                await repo.update_branch(branch, marker_sha)
+                return {"status": "committed", "summary": "Recovered existing task commit.", "changes": [], "commit": marker_sha, "branch": branch}
+
+            # A retry commit can be ahead of the original marker. Walk recent
+            # commits when the GitHub client supports it and recover the branch
+            # head without rewriting history.
+            branch_commits = getattr(repo, "branch_commits", None)
+            if branch_commits is not None:
+                try:
+                    commits = await branch_commits(branch, limit=20)
+                except Exception:
+                    commits = []
+                for commit in commits:
+                    message = str(((commit.get("commit") or {}).get("message") or ""))
+                    if marker in message:
+                        return {"status": "committed", "summary": "Recovered existing task branch.", "changes": [], "commit": head_sha, "branch": branch}
         return None
 
-    # Branch creation itself may have succeeded before a worker crash. If a
-    # task commit exists remotely, recreate/repair the branch from that commit.
     marker_commit = await repo.find_task_commit(marker)
     if marker_commit is None:
         return None
