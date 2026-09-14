@@ -108,14 +108,17 @@ def create_usdt_order(telegram_id: int, plan_key: str) -> dict:
     }
 
 
-def get_usdt_order(order_id: str) -> dict:
+def get_usdt_order(order_id: str, telegram_id: int | None = None) -> dict:
     with SessionLocal() as db:
-        order = db.scalar(
-            select(Payment).where(
-                Payment.provider == "ton_direct",
-                Payment.provider_payment_id == order_id,
-            )
+        stmt = select(Payment).where(
+            Payment.provider == "ton_direct",
+            Payment.provider_payment_id == order_id,
         )
+        if telegram_id is not None:
+            from database.models import User
+
+            stmt = stmt.join(User, Payment.user_id == User.id).where(User.telegram_id == telegram_id)
+        order = db.scalar(stmt)
         if not order:
             raise TonPaymentError("Payment order not found")
         raw = json.loads(order.raw_payload or "{}")
@@ -214,11 +217,14 @@ def _transfer_comment(transfer: dict) -> str | None:
 
 
 def _find_matching_transfer(created_at: int, amount_units: int, comment: str) -> dict | None:
+    now = int(time.time())
+    expiry = settings.ton_payment_expiry_minutes * 60
     params = {
         "owner_address": settings.ton_payment_address,
         "direction": "in",
         "jetton_master": _usdt_master(),
         "start_utime": max(0, created_at - 120),
+        "end_utime": min(now, created_at + expiry),
         "limit": 100,
         "sort": "desc",
     }
@@ -234,7 +240,17 @@ def _find_matching_transfer(created_at: int, amount_units: int, comment: str) ->
     for transfer in transfers:
         if transfer.get("transaction_aborted"):
             continue
-        if str(transfer.get("amount")) != str(amount_units):
+        try:
+            transfer_time = int(transfer.get("utime") or transfer.get("transaction_utime") or 0)
+        except (TypeError, ValueError):
+            continue
+        if transfer_time < created_at - 120 or transfer_time > created_at + expiry:
+            continue
+        try:
+            transfer_amount = int(transfer.get("amount"))
+        except (TypeError, ValueError):
+            continue
+        if transfer_amount != amount_units:
             continue
         if _transfer_comment(transfer) != comment:
             continue
