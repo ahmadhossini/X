@@ -1,1 +1,0 @@
-Stars removed; regression coverage lives in test_no_telegram_stars.py
