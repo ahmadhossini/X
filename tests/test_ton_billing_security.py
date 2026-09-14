@@ -25,3 +25,11 @@ def test_ton_transfer_match_requires_exact_integer_amount_and_comment():
     assert 'transfer_amount = int(transfer.get("amount"))' in text
     assert 'if transfer_amount != amount_units:' in text
     assert 'if _transfer_comment(transfer) != comment:' in text
+
+
+def test_ton_transfer_match_requires_expected_destination_master_and_hash():
+    text = (ROOT / "billing" / "ton.py").read_text(encoding="utf-8")
+    assert 'expected_destination = settings.ton_payment_address.strip()' in text
+    assert 'if str(transfer.get("destination") or "") != expected_destination:' in text
+    assert 'if str(transfer.get("jetton_master") or "") != expected_master:' in text
+    assert 'if not str(transfer.get("transaction_hash") or ""):' in text
