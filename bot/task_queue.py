@@ -115,7 +115,6 @@ def _validate_commit(repository: str, installation_id: int, commit_sha: str) -> 
         repo = GitHubRepo(repository, installation_id)
         try:
             deadline = time.monotonic() + VALIDATION_TIMEOUT_SECONDS
-            seen_run_ids: set[int] = set()
             while time.monotonic() < deadline:
                 runs = await repo.workflow_runs_for_commit(commit_sha)
                 relevant = []
@@ -123,7 +122,6 @@ def _validate_commit(repository: str, installation_id: int, commit_sha: str) -> 
                     run_id = run.get("id")
                     if not isinstance(run_id, int):
                         continue
-                    seen_run_ids.add(run_id)
                     if run.get("event") in {"pull_request", "push"} or run.get("name") == "XAI Agent Validation":
                         relevant.append(run)
                 if relevant:
@@ -175,11 +173,11 @@ def _notify(task: Task, success: bool, result: dict | None = None) -> None:
             text += f"\nPR: {pr_url}"
     else:
         if lang == "fa":
-            text = "اجرای کار پس از ۳ تلاش اعتبارسنجی ناموفق بود. اعتبار رزرو‌شده برگردانده شد."
+            text = "اجرای کار پس از ۳ تلاش اعتبارسنجی ناموفق بود. تغییرات ایجادشده روی Branch باقی مانده‌اند و اعتبار مصرف‌شده بازگردانده نشد."
         elif lang == "hi":
-            text = "3 validation attempts के बाद कार्य विफल हुआ। आरक्षित क्रेडिट वापस कर दिए गए।"
+            text = "3 validation attempts के बाद कार्य विफल हुआ। किए गए बदलाव Branch पर रखे गए हैं और खर्च किया गया क्रेडिट वापस नहीं किया गया।"
         else:
-            text = "The task failed after 3 validation attempts. Reserved credits were refunded."
+            text = "The task failed after 3 validation attempts. The generated changes remain on the branch, and the spent credits were not refunded."
     try:
         bot.send_message(task.chat_id, text[:4000])
     except Exception:
