@@ -1,0 +1,1 @@
+Do not ship Telegram Stars.
