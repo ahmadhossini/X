@@ -20,6 +20,7 @@ MAX_CHANGED_FILES = 8
 MAX_FILE_CHARS = 300_000
 PROTECTED_PATHS = {".env", ".env.example", "credentials.json", "service-account.json"}
 PROTECTED_PREFIXES = (".git/", ".github/workflows/")
+TASK_TYPES = {"code", "actions", "pr", "conflict", "deps", "review"}
 
 
 def _safe_path(path: str) -> bool:
@@ -54,6 +55,18 @@ def _output_language(request: str, language: str | None = None) -> str:
     return selected or _request_language(request)
 
 
+def _task_instruction(task_type: str) -> str:
+    instructions = {
+        "code": "Diagnose the requested coding problem and propose the smallest safe source-code change.",
+        "actions": "Focus on GitHub Actions failures: identify likely workflow/job causes from the repository context and propose source/config fixes. Never edit .github/workflows files in this agent version; if the workflow itself must change, explain that limitation in the summary.",
+        "pr": "Treat the request as a Pull Request task: inspect repository code for the requested PR-related problem, implement the required source change, and keep the result reviewable and narrowly scoped.",
+        "conflict": "Treat the request as a merge-conflict task: preserve both sides' intended behavior, identify conflicting logic, and produce a minimal conflict-safe source result. Do not fabricate conflict markers or merge results.",
+        "deps": "Treat the request as a dependency/build task: identify incompatible, missing, or outdated dependency usage from repository files and make the smallest compatible source/config change. Do not invent package versions without evidence in the repository.",
+        "review": "Treat the request as a code-review task: prioritize correctness, security, regressions, and maintainability. If a concrete fix is requested, implement it; otherwise return no changes and summarize findings.",
+    }
+    return instructions.get(task_type, instructions["code"])
+
+
 async def build_context(repo: GitHubRepo, ref: str, limit: int = 40) -> dict[str, str]:
     tree = await repo.tree(ref)
     files = [
@@ -84,18 +97,23 @@ async def plan_changes(
     request: str,
     context: dict[str, str],
     language: str | None = None,
+    task_type: str = "code",
 ) -> dict[str, Any]:
     if not api_key:
         raise AgentError("GEMINI_API_KEY is not configured")
+    if task_type not in TASK_TYPES:
+        raise AgentError("Unsupported task type")
     output_language = _output_language(request, language)
     prompt = f'''You are XAI Code Agent. Work as a careful senior engineer.
+Task type: {task_type}
+Task-specific instruction: {_task_instruction(task_type)}
 User request: {request}
 Repository context follows as JSON mapping file paths to source text.
 Output language: {output_language}.
 The "summary" MUST be written entirely in the output language. Do not switch to English or another natural language in the summary. Keep code identifiers, filenames, repository names, commands, and unavoidable technical names unchanged when necessary.
 Return ONLY valid JSON with this shape:
 {{"summary":"...","changes":[{{"path":"...","action":"create|modify|delete","content":"full file content for create/modify"}}]}}
-Rules: only propose concrete source changes needed for the request; never invent test results; preserve unrelated code; use full replacement content; max 8 changed files; never touch .git, secrets, credentials, private keys, or CI workflow files. Delete only when explicitly required by the user request. If no safe change is possible, return an empty changes array.
+Rules: only propose concrete source changes needed for the request; never invent test or CI results; preserve unrelated code; use full replacement content; max 8 changed files; never touch .git, secrets, credentials, private keys, or CI workflow files. Delete only when explicitly required by the user request. For a pure review with no requested fix, return an empty changes array. If repository context is insufficient, return an empty changes array rather than guessing.
 CONTEXT:
 {json.dumps(context, ensure_ascii=False)}'''
     client = genai.Client(api_key=api_key)
@@ -146,14 +164,6 @@ CONTEXT:
 
 
 async def reconcile_task(repo: GitHubRepo, base: str, request: str, task_id: str) -> dict[str, Any] | None:
-    """Recover a GitHub side effect from a worker crash without calling Gemini.
-
-    The task branch is deterministic. A commit carrying the task marker is
-    therefore the only commit we are willing to reconnect automatically. We
-    only move a branch when the marker commit is exactly the current head or
-    its single parent is the current head, which guarantees a fast-forward and
-    prevents attaching an unrelated commit to a recovered task.
-    """
     marker = f"XAI-TASK:{task_id}"
     branch = _branch_name(request, task_id)
     marker_commit = await repo.find_task_commit(marker)
@@ -181,8 +191,6 @@ async def reconcile_task(repo: GitHubRepo, base: str, request: str, task_id: str
             return {"status": "committed", "summary": "Recovered existing task commit.", "changes": [], "commit": marker_sha, "branch": branch}
         return None
 
-    # The commit exists but the branch does not. Reattach it only when its
-    # parent is the exact base commit used for this task.
     marker_details = await repo.commit(marker_sha)
     parents = marker_details.get("parents")
     parent_sha = parents[0].get("sha") if isinstance(parents, list) and parents and isinstance(parents[0], dict) else None
@@ -203,7 +211,10 @@ async def execute_task(
     create_pr: bool = True,
     language: str | None = None,
     task_id: str | None = None,
+    task_type: str = "code",
 ) -> dict[str, Any]:
+    if task_type not in TASK_TYPES:
+        raise AgentError("Unsupported task type")
     repo = GitHubRepo(repository, installation_id)
     marker = f"XAI-TASK:{task_id}" if task_id else None
     try:
@@ -224,15 +235,11 @@ async def execute_task(
                         f"XAI Agent: recovered task {task_id[:12]}",
                         f"Recovered automated coding-agent change.\n\nRequest: {request}",
                     )
-                    result["pull_request"] = {
-                        "number": pr.get("number"),
-                        "url": pr.get("html_url"),
-                        "draft": pr.get("draft", True),
-                    }
+                    result["pull_request"] = {"number": pr.get("number"), "url": pr.get("html_url"), "draft": pr.get("draft", True)}
                 return result
 
         context = await build_context(repo, base)
-        plan = await plan_changes(api_key, model, request, context, language)
+        plan = await plan_changes(api_key, model, request, context, language, task_type)
         if not plan["changes"]:
             return {"status": "no_changes", "summary": plan["summary"], "changes": []}
 
@@ -248,19 +255,16 @@ async def execute_task(
             "changes": [c["path"] for c in plan["changes"]],
             "commit": sha,
             "branch": branch,
+            "task_type": task_type,
         }
         if create_pr:
             pr = await repo.pull_request(
                 branch,
                 base,
                 f"XAI Agent: {plan['summary'][:70] or request[:70]}",
-                f"Automated coding-agent change.\n\nRequest: {request}\n\nSummary: {plan['summary']}",
+                f"Automated coding-agent change.\n\nTask type: {task_type}\nRequest: {request}\n\nSummary: {plan['summary']}",
             )
-            result["pull_request"] = {
-                "number": pr.get("number"),
-                "url": pr.get("html_url"),
-                "draft": pr.get("draft", True),
-            }
+            result["pull_request"] = {"number": pr.get("number"), "url": pr.get("html_url"), "draft": pr.get("draft", True)}
         return result
     finally:
         await repo.aclose()
