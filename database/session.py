@@ -46,7 +46,38 @@ def init_db() -> None:
         if "credits_reset_at" not in user_columns:
             connection.execute(text(f"ALTER TABLE users ADD COLUMN credits_reset_at {reset_type} NULL"))
 
+        # Credit accounting migration: existing balances are conservatively
+        # treated as subscription credits; top-up credits start at zero.
+        if "subscription_credits" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN subscription_credits INTEGER NOT NULL DEFAULT 0"))
+            connection.execute(text("UPDATE users SET subscription_credits = credits"))
+        if "topup_credits" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN topup_credits INTEGER NOT NULL DEFAULT 0"))
+        connection.execute(text("UPDATE users SET credits = subscription_credits + topup_credits"))
+
         if "payments" in tables:
             payment_columns = {column["name"] for column in inspector.get_columns("payments")}
             if "amount_usd_cents" not in payment_columns:
                 connection.execute(text("ALTER TABLE payments ADD COLUMN amount_usd_cents INTEGER NULL"))
+
+        if "usage_records" in tables:
+            usage_columns = {column["name"] for column in inspector.get_columns("usage_records")}
+            if "subscription_credits_reserved" not in usage_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE usage_records "
+                        "ADD COLUMN subscription_credits_reserved INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+                # Existing reservations cannot be reconstructed from source; keep
+                # them compatible by treating the reserved amount as subscription credit.
+                connection.execute(
+                    text(
+                        "UPDATE usage_records SET subscription_credits_reserved = credits_reserved "
+                        "WHERE subscription_credits_reserved = 0"
+                    )
+                )
+            if "topup_credits_reserved" not in usage_columns:
+                connection.execute(
+                    text("ALTER TABLE usage_records ADD COLUMN topup_credits_reserved INTEGER NOT NULL DEFAULT 0")
+                )

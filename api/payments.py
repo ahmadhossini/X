@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 
-from billing.ton import TonPaymentError, verify_usdt_order
+from billing.ton import TonPaymentError, get_usdt_order, verify_usdt_order
 from core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -17,7 +17,11 @@ router = APIRouter(prefix="/api/payments", tags=["payments"])
 def ton_checkout(order_id: str) -> str:
     if len(order_id) > 80 or not order_id.startswith("ton-"):
         raise HTTPException(status_code=404, detail="Not found")
-    return _checkout_html(order_id)
+    try:
+        details = get_usdt_order(order_id)
+    except TonPaymentError as exc:
+        raise HTTPException(status_code=404, detail="Payment order not found") from exc
+    return _checkout_html(order_id, details)
 
 
 @router.get("/ton/status/{order_id}")
@@ -33,10 +37,12 @@ def ton_status(order_id: str) -> dict:
         raise HTTPException(status_code=502, detail="Payment verification is temporarily unavailable") from exc
 
 
-def _checkout_html(order_id: str) -> str:
+def _checkout_html(order_id: str, details: dict) -> str:
     safe_order = html.escape(order_id, quote=True)
-    status_url = f"{settings.public_base_url}/api/payments/ton/status/{safe_order}"
-    details_url = f"{settings.public_base_url}/api/miniapp/billing/order/{safe_order}"
+    address = html.escape(str(details.get("address") or ""), quote=True)
+    amount = html.escape(str(details.get("amount_usdt") or ""), quote=True)
+    comment = html.escape(str(details.get("comment") or ""), quote=True)
+    deep_link = html.escape(str(details.get("deep_link") or "#"), quote=True)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -57,16 +63,16 @@ small{{color:#667085;line-height:1.6}}#status{{margin-top:16px;padding:12px;bord
 <h1>USDT payment</h1>
 <p>Send the exact amount of USDT on the TON network and include the payment comment.</p>
 <div><strong>Order</strong><div class="value">{safe_order}</div></div>
-<div><strong>Payment address</strong><div id="address" class="value">Loading...</div></div>
-<div><strong>Amount</strong><div id="amount" class="value">Loading...</div></div>
-<div><strong>Comment</strong><div id="comment" class="value">Loading...</div></div>
-<a id="wallet" href="#">Open TON wallet</a>
+<div><strong>Payment address</strong><div id="address" class="value">{address}</div></div>
+<div><strong>Amount</strong><div id="amount" class="value">{amount} USDT</div></div>
+<div><strong>Comment</strong><div id="comment" class="value">{comment}</div></div>
+<a id="wallet" href="{deep_link}">Open TON wallet</a>
 <button id="copy">Copy payment details</button>
 <div id="status">Checking payment...</div>
 <small>Do not send another asset or another network. Credits are added only after the blockchain transaction is verified.</small>
 </div>
 <script>
-const statusUrl = {status_url!r};
+const statusUrl = {("/api/payments/ton/status/" + safe_order)!r};
 async function load() {{
   const response = await fetch(statusUrl);
   const data = await response.json();
@@ -80,16 +86,10 @@ async function load() {{
   }}
   return false;
 }}
-fetch({details_url!r}).then(r => r.json()).then(data => {{
-  document.getElementById('address').textContent = data.address || '';
-  document.getElementById('amount').textContent = (data.amount_usdt || '') + ' USDT';
-  document.getElementById('comment').textContent = data.comment || '';
-  document.getElementById('wallet').href = data.deep_link || '#';
-  document.getElementById('copy').onclick = async () => {{
-    await navigator.clipboard.writeText(`USDT on TON\nAddress: ${{data.address}}\nAmount: ${{data.amount_usdt}}\nComment: ${{data.comment}}`);
-    document.getElementById('copy').textContent = 'Copied';
-  }};
-}});
+document.getElementById('copy').onclick = async () => {{
+  await navigator.clipboard.writeText(`USDT on TON\nAddress: {address}\nAmount: {amount}\nComment: {comment}`);
+  document.getElementById('copy').textContent = 'Copied';
+}};
 load();
 setInterval(() => load().catch(() => {{}}), 5000);
 </script>

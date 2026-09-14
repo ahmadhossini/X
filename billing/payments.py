@@ -6,12 +6,45 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from billing.plans import Plan, get_plan
+from billing.service import _sync_plan_state
 from database.models import Payment, Subscription, User
 from database.session import SessionLocal
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _sync_total_credits(user: User) -> None:
+    user.subscription_credits = max(0, user.subscription_credits)
+    user.topup_credits = max(0, user.topup_credits)
+    user.credits = user.subscription_credits + user.topup_credits
+
+
+def _validate_payment_amount(plan: Plan, amount_usd_cents: int) -> int:
+    """Require the payment amount to exactly match the selected plan price."""
+    try:
+        amount = int(amount_usd_cents)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Invalid payment amount") from exc
+    if amount != plan.price_usd_cents:
+        raise ValueError("Payment amount does not match plan price")
+    return amount
+
+
+def _load_existing_payment(db, provider: str, payment_id: str, user_id: int) -> Payment | None:
+    """Load a payment idempotently and prevent cross-user payment-id reuse."""
+    existing = db.scalar(
+        select(Payment)
+        .where(
+            Payment.provider == provider,
+            Payment.provider_payment_id == payment_id,
+        )
+        .with_for_update()
+    )
+    if existing and existing.user_id != user_id:
+        raise ValueError("Payment belongs to another user")
+    return existing
 
 
 def activate_paid_plan(
@@ -26,6 +59,7 @@ def activate_paid_plan(
 ) -> bool:
     """Atomically record a payment and grant credits exactly once."""
     plan: Plan = get_plan(plan_key)
+    amount_usd_cents = _validate_payment_amount(plan, amount_usd_cents)
     if not plan.subscription:
         return activate_topup(
             telegram_id,
@@ -42,16 +76,16 @@ def activate_paid_plan(
         if not user:
             raise ValueError("User not found")
 
-        existing = db.scalar(
-            select(Payment).where(
-                Payment.provider == payment_method,
-                Payment.provider_payment_id == payment_id,
-            ).with_for_update()
-        )
+        existing = _load_existing_payment(db, payment_method, payment_id, user.id)
         if existing and existing.status == "paid":
             return False
 
         now = _now()
+        # Expire an old subscription before granting a new one. This prevents
+        # already-expired subscription credits from being carried into the new
+        # billing period while preserving non-expiring top-up credits.
+        _sync_plan_state(user, now)
+
         active_sub = db.scalar(
             select(Subscription)
             .where(
@@ -77,8 +111,9 @@ def activate_paid_plan(
         )
 
         user.plan = plan.key
-        user.credits += plan.credits
+        user.subscription_credits += plan.credits
         user.credits_reset_at = expires_at
+        _sync_total_credits(user)
         _record_payment(
             db,
             user.id,
@@ -110,22 +145,20 @@ def activate_topup(
     plan = get_plan(plan_key)
     if plan.subscription:
         raise ValueError("Plan is not a top-up")
+    amount_usd_cents = _validate_payment_amount(plan, amount_usd_cents)
 
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
         if not user:
             raise ValueError("User not found")
-        existing = db.scalar(
-            select(Payment).where(
-                Payment.provider == payment_method,
-                Payment.provider_payment_id == payment_id,
-            ).with_for_update()
-        )
+        existing = _load_existing_payment(db, payment_method, payment_id, user.id)
         if existing and existing.status == "paid":
             return False
 
         now = _now()
-        user.credits += plan.credits
+        _sync_plan_state(user, now)
+        user.topup_credits += plan.credits
+        _sync_total_credits(user)
         _record_payment(
             db,
             user.id,
@@ -154,7 +187,9 @@ def _record_payment(
     existing: Payment | None,
     now: datetime,
 ) -> None:
-    amount_usd = int(round(amount_usd_cents / 100))
+    # amount_usd_cents is the authoritative monetary value. Keep amount_usd
+    # only as a legacy whole-dollar compatibility field for existing schema/users.
+    amount_usd = amount_usd_cents // 100
     payload = json.dumps(raw_payload or {}, ensure_ascii=False)[:20000]
     if existing:
         existing.status = "paid"
