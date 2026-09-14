@@ -91,7 +91,7 @@ def _connect_markup(telegram_id: int, language: str) -> types.InlineKeyboardMark
 
 
 def _language_markup() -> types.InlineKeyboardMarkup:
-    markup = types.InlineKeyboardMarkup()
+    markup = types.InlineKeyboardMarkup(row_width=3)
     markup.row(
         types.InlineKeyboardButton("English", callback_data="lang:en"),
         types.InlineKeyboardButton("हिन्दी", callback_data="lang:hi"),
@@ -100,27 +100,18 @@ def _language_markup() -> types.InlineKeyboardMarkup:
     return markup
 
 
-def _start_inline_keyboard(language: str) -> types.InlineKeyboardMarkup:
-    """Compact native Telegram action buttons shown directly under /start."""
+def _main_keyboard(language: str) -> types.InlineKeyboardMarkup:
+    """Native Telegram inline buttons: compact, clean and Telegram-rendered like glass controls."""
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.row(
-        types.InlineKeyboardButton(t(language, "start_connect_button"), callback_data="start:connect"),
-        types.InlineKeyboardButton(t(language, "start_repos_button"), callback_data="start:repos"),
+        types.InlineKeyboardButton(t(language, "connect_menu_button"), callback_data="menu:connect"),
+        types.InlineKeyboardButton(t(language, "repos_menu_button"), callback_data="menu:repos"),
     )
-    markup.row(types.InlineKeyboardButton(t(language, "start_task_button"), callback_data="start:task"))
-    return markup
-
-
-def _main_keyboard(language: str) -> types.ReplyKeyboardMarkup:
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
-    markup.add(
-        types.KeyboardButton(t(language, "brand_button")),
-        types.KeyboardButton(t(language, "connect_menu_button")),
-        types.KeyboardButton(t(language, "repos_menu_button")),
-        types.KeyboardButton(t(language, "task_menu_button")),
-        types.KeyboardButton(t(language, "language_menu_button")),
-        types.KeyboardButton(t(language, "disconnect_menu_button")),
+    markup.row(
+        types.InlineKeyboardButton(t(language, "task_menu_button"), callback_data="menu:task"),
+        types.InlineKeyboardButton(t(language, "coding_advice_button"), callback_data="menu:chat"),
     )
+    markup.row(types.InlineKeyboardButton(t(language, "support_button"), callback_data="menu:support"))
     return markup
 
 
@@ -151,19 +142,19 @@ def build_bot() -> TeleBot:
         user_id = message.from_user.id
         payload = (message.text or "").split(maxsplit=1)
         if not _language_selected(user_id):
-            bot.reply_to(message, _language_prompt(), reply_markup=_language_markup())
+            bot.reply_to(message, t("en", "choose_language"), reply_markup=_language_markup(), parse_mode="HTML")
             return
         language = _language(user_id)
         _set_user_commands(bot, user_id, language)
         if len(payload) > 1 and payload[1] == "connect_github":
-            bot.reply_to(message, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language))
+            bot.reply_to(message, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language), parse_mode="HTML")
             return
         if len(payload) > 1 and payload[1] == "github_connected":
             installation = _installation(user_id)
             if installation:
-                bot.reply_to(message, t(language, "github_connected", login=installation.github_login or "GitHub"), reply_markup=_main_keyboard(language))
+                bot.reply_to(message, t(language, "github_connected", login=installation.github_login or "GitHub"), reply_markup=_main_keyboard(language), parse_mode="HTML")
                 return
-        bot.reply_to(message, t(language, "welcome"), reply_markup=_start_inline_keyboard(language), parse_mode="HTML")
+        bot.reply_to(message, t(language, "welcome"), reply_markup=_main_keyboard(language), parse_mode="HTML")
 
     @bot.message_handler(commands=["help"])
     def help_command(message: Message) -> None:
@@ -174,7 +165,7 @@ def build_bot() -> TeleBot:
             bot.reply_to(message, _language_prompt(), reply_markup=_language_markup())
             return
         language = _language(user_id)
-        bot.reply_to(message, t(language, "help"), reply_markup=_main_keyboard(language))
+        bot.reply_to(message, t(language, "help"), reply_markup=_main_keyboard(language), parse_mode="HTML")
 
     @bot.message_handler(commands=["balance"])
     def balance_command(message: Message) -> None:
@@ -184,7 +175,7 @@ def build_bot() -> TeleBot:
         language = _language(user_id)
         try:
             credits, plan = ensure_user_credit_state(user_id)
-            bot.reply_to(message, t(language, "balance", credits=credits, plan=plan), reply_markup=_main_keyboard(language))
+            bot.reply_to(message, t(language, "balance", credits=credits, plan=plan), reply_markup=_main_keyboard(language), parse_mode="HTML")
         except BillingError:
             bot.reply_to(message, t(language, "billing_error"), reply_markup=_main_keyboard(language))
 
@@ -193,7 +184,7 @@ def build_bot() -> TeleBot:
         if not message.from_user:
             return
         language = _language(message.from_user.id)
-        bot.reply_to(message, t(language, "choose_language"), reply_markup=_language_markup())
+        bot.reply_to(message, t(language, "choose_language"), reply_markup=_language_markup(), parse_mode="HTML")
 
     @bot.callback_query_handler(func=lambda call: bool(call.data and call.data.startswith("start:")))
     def start_action_callback(call: CallbackQuery) -> None:
@@ -209,7 +200,27 @@ def build_bot() -> TeleBot:
         elif action == "repos":
             repositories(call.message)
         elif action == "task":
-            bot.send_message(call.message.chat.id, t(language, "task_format"), reply_markup=_main_keyboard(language))
+            bot.send_message(call.message.chat.id, t(language, "task_format"), reply_markup=_main_keyboard(language), parse_mode="HTML")
+
+    @bot.callback_query_handler(func=lambda call: bool(call.data and call.data.startswith("menu:")))
+    def menu_callback(call: CallbackQuery) -> None:
+        if not call.from_user or not call.data:
+            return
+        language = _language(call.from_user.id)
+        action = call.data.split(":", 1)[1]
+        bot.answer_callback_query(call.id)
+        if not call.message:
+            return
+        if action == "connect":
+            connect_command(call.message)
+        elif action == "repos":
+            repositories(call.message)
+        elif action == "task":
+            bot.send_message(call.message.chat.id, t(language, "task_format"), reply_markup=_main_keyboard(language), parse_mode="HTML")
+        elif action == "chat":
+            bot.send_message(call.message.chat.id, t(language, "chat_prompt"), reply_markup=_main_keyboard(language), parse_mode="HTML")
+        elif action == "support":
+            bot.send_message(call.message.chat.id, t(language, "support_text"), reply_markup=_main_keyboard(language), parse_mode="HTML")
 
     @bot.callback_query_handler(func=lambda call: bool(call.data and call.data.startswith("lang:")))
     def language_callback(call: CallbackQuery) -> None:
@@ -224,7 +235,7 @@ def build_bot() -> TeleBot:
             _set_user_commands(bot, call.from_user.id, language)
             bot.answer_callback_query(call.id, t(language, "language_selected"))
             if call.message:
-                bot.send_message(call.message.chat.id, t(language, "menu_home"), reply_markup=_main_keyboard(language), parse_mode="HTML")
+                bot.send_message(call.message.chat.id, t(language, "welcome"), reply_markup=_main_keyboard(language), parse_mode="HTML")
         except Exception:
             logger.exception("Language selection failed")
             try:
@@ -243,7 +254,7 @@ def build_bot() -> TeleBot:
             return
         user_id = message.from_user.id
         language = _language(user_id)
-        bot.reply_to(message, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language))
+        bot.reply_to(message, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language), parse_mode="HTML")
 
     @bot.message_handler(commands=["disconnect"])
     def disconnect(message: Message) -> None:
@@ -268,7 +279,7 @@ def build_bot() -> TeleBot:
         language = _language(user_id)
         installation = _installation(user_id)
         if not installation:
-            bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(user_id, language))
+            bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(user_id, language), parse_mode="HTML")
             return
         try:
             data = _run_async(github_app_get, "/installation/repositories?per_page=100", installation.installation_id)
@@ -277,7 +288,7 @@ def build_bot() -> TeleBot:
                 bot.reply_to(message, t(language, "repos_empty"), reply_markup=_main_keyboard(language))
                 return
             lines = [f"• {repo.get('full_name')}" for repo in repos[:50] if repo.get("full_name")]
-            bot.reply_to(message, t(language, "repos_title") + "\n\n" + "\n".join(lines), reply_markup=_main_keyboard(language))
+            bot.reply_to(message, t(language, "repos_title") + "\n\n" + "\n".join(lines), reply_markup=_main_keyboard(language), parse_mode="HTML")
         except Exception:
             logger.exception("Failed to list repositories")
             bot.reply_to(message, t(language, "github_error"), reply_markup=_main_keyboard(language))
@@ -290,12 +301,12 @@ def build_bot() -> TeleBot:
         language = _language(user_id)
         installation = _installation(user_id)
         if not installation:
-            bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(user_id, language))
+            bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(user_id, language), parse_mode="HTML")
             return
 
         request = (message.text or "")[len("/task"):].strip()
         if len(request) < 3 or request.startswith("/"):
-            bot.reply_to(message, t(language, "task_format"), reply_markup=_main_keyboard(language))
+            bot.reply_to(message, t(language, "task_format"), reply_markup=_main_keyboard(language), parse_mode="HTML")
             return
 
         try:
@@ -343,25 +354,13 @@ def build_bot() -> TeleBot:
         )
 
     @bot.message_handler(func=lambda message: bool(message.text))
-    def menu_buttons(message: Message) -> None:
+    def text_handler(message: Message) -> None:
         if not message.from_user:
             return
         user_id = message.from_user.id
         language = _language(user_id)
         text = (message.text or "").strip()
-        if text == t(language, "connect_menu_button"):
-            connect_command(message)
-        elif text == t(language, "repos_menu_button"):
-            repositories(message)
-        elif text == t(language, "task_menu_button"):
-            bot.send_message(message.chat.id, t(language, "task_format"), reply_markup=_main_keyboard(language))
-        elif text == t(language, "language_menu_button"):
-            language_command(message)
-        elif text == t(language, "disconnect_menu_button"):
-            disconnect(message)
-        elif text == t(language, "brand_button"):
-            bot.send_message(message.chat.id, t(language, "menu_home"), reply_markup=_main_keyboard(language), parse_mode="HTML")
-        elif not text.startswith("/"):
+        if not text.startswith("/"):
             handle_chat_message(bot, message)
 
     return bot
