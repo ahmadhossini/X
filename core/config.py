@@ -17,7 +17,7 @@ def _positive_int(name: str, default: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(value, maximum))
 
 
-@dataclass(frozen=True)
+@dataclass
 class Settings:
     bot_token: str = os.getenv("BOT_TOKEN", "")
     bot_username: str = os.getenv("BOT_USERNAME", "")

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import html
 import logging
+import threading
+import time
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
@@ -11,6 +13,26 @@ from core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/payments", tags=["payments"])
+
+_TON_STATUS_MIN_INTERVAL = 3.0
+_ton_status_lock = threading.Lock()
+_ton_status_last_checked: dict[str, float] = {}
+_TON_STATUS_MAX_TRACKED = 10_000
+
+
+def _allow_ton_status_check(order_id: str) -> bool:
+    now = time.monotonic()
+    with _ton_status_lock:
+        last = _ton_status_last_checked.get(order_id)
+        if last is not None and now - last < _TON_STATUS_MIN_INTERVAL:
+            return False
+        _ton_status_last_checked[order_id] = now
+        if len(_ton_status_last_checked) > _TON_STATUS_MAX_TRACKED:
+            cutoff = now - 60.0
+            stale = [key for key, value in _ton_status_last_checked.items() if value < cutoff]
+            for key in stale[:2000]:
+                _ton_status_last_checked.pop(key, None)
+        return True
 
 
 @router.get("/ton/checkout/{order_id}", response_class=HTMLResponse)
@@ -28,6 +50,8 @@ def ton_checkout(order_id: str) -> str:
 def ton_status(order_id: str) -> dict:
     if len(order_id) > 80 or not order_id.startswith("ton-"):
         raise HTTPException(status_code=404, detail="Not found")
+    if not _allow_ton_status_check(order_id):
+        raise HTTPException(status_code=429, detail="Please wait before checking this payment again")
     try:
         return verify_usdt_order(order_id)
     except TonPaymentError as exc:

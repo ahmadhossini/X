@@ -19,6 +19,7 @@ from database.session import SessionLocal
 router = APIRouter(prefix="/api/miniapp", tags=["miniapp"])
 
 INIT_DATA_MAX_AGE_SECONDS = 24 * 60 * 60
+INIT_DATA_FUTURE_SKEW_SECONDS = 300
 SUPPORTED_LANGUAGES = {"fa", "en", "hi"}
 
 
@@ -54,7 +55,8 @@ def _telegram_user(init_data: str) -> dict:
         if not hmac.compare_digest(expected_hash, supplied_hash):
             raise ValueError
         auth_date = int(pairs.get("auth_date", "0"))
-        if auth_date <= 0 or abs(int(time.time()) - auth_date) > INIT_DATA_MAX_AGE_SECONDS:
+        now = int(time.time())
+        if auth_date <= 0 or auth_date > now + INIT_DATA_FUTURE_SKEW_SECONDS or now - auth_date > INIT_DATA_MAX_AGE_SECONDS:
             raise ValueError
         user = json.loads(pairs.get("user", "{}"))
         telegram_id = int(user["id"])
@@ -83,6 +85,30 @@ def _init_data(authorization: str | None, x_telegram_init_data: str | None) -> s
     if not value and authorization and authorization.lower().startswith("tma "):
         value = authorization[4:].strip()
     return value
+
+
+def _active_installation(user_id: int) -> GitHubInstallation | None:
+    with SessionLocal() as db:
+        return db.scalar(
+            select(GitHubInstallation)
+            .where(GitHubInstallation.user_id == user_id, GitHubInstallation.active.is_(True))
+            .order_by(GitHubInstallation.updated_at.desc())
+        )
+
+
+def _auth_installation_repository(data: dict, repository: str) -> bool:
+    target = repository.strip().casefold()
+    if not target or target.count("/") != 1:
+        return False
+    repositories = data.get("repositories", [])
+    if not isinstance(repositories, list):
+        return False
+    return any(
+        isinstance(repo, dict)
+        and isinstance(repo.get("full_name"), str)
+        and repo["full_name"].casefold() == target
+        for repo in repositories
+    )
 
 
 @router.get("/me")
@@ -135,12 +161,7 @@ async def repos(
     x_telegram_init_data: str | None = Header(default=None),
 ) -> dict:
     user = _auth_user(_init_data(authorization, x_telegram_init_data))
-    with SessionLocal() as db:
-        installation = db.scalar(
-            select(GitHubInstallation)
-            .where(GitHubInstallation.user_id == user.id, GitHubInstallation.active.is_(True))
-            .order_by(GitHubInstallation.updated_at.desc())
-        )
+    installation = _active_installation(user.id)
     if not installation:
         raise HTTPException(status_code=409, detail="GitHub not connected")
     try:
@@ -164,7 +185,7 @@ async def repos(
 
 
 @router.post("/task")
-def task(
+async def task(
     payload: TaskRequest,
     authorization: str | None = Header(default=None),
     x_telegram_init_data: str | None = Header(default=None),
@@ -173,13 +194,28 @@ def task(
     language = payload.language or user.language
     if language not in SUPPORTED_LANGUAGES:
         language = "en"
+    repository = payload.repository.strip()
+    installation = _active_installation(user.id)
+    if not installation:
+        raise HTTPException(status_code=409, detail="GitHub not connected")
+    try:
+        data = await github_app_get(
+            "/installation/repositories?per_page=100",
+            installation.installation_id,
+        )
+    except GitHubAppError:
+        raise HTTPException(status_code=502, detail="GitHub is temporarily unavailable")
+    if not _auth_installation_repository(data, repository):
+        raise HTTPException(status_code=403, detail="Repository is not accessible through your GitHub installation")
+
     credits = estimate_task_credits(payload.request)
     try:
         reservation = reserve_task_credits(
             user.telegram_id,
-            payload.repository.strip(),
+            repository,
             payload.request.strip(),
             credits,
+            installation_id=installation.installation_id,
             model=settings.gemini_model,
             chat_id=user.telegram_id,
             language=language,
