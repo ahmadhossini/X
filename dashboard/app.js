@@ -1,65 +1,45 @@
 (() => {
   const tg = window.Telegram?.WebApp;
-  if (tg) {
-    tg.ready();
-    tg.expand();
-  }
+  if (tg) { tg.ready(); tg.expand(); }
 
   const $ = (id) => document.getElementById(id);
-  const status = $('status');
-  const connectBtn = $('connectBtn');
-  const taskBtn = $('taskBtn');
-  const refreshBtn = $('refreshBtn');
-  const languageBtn = $('languageBtn');
-  const taskResult = $('taskResult');
-
   const copy = {
     fa: {
-      dir: 'rtl', title: 'دستیار کدنویسی', ready: 'آماده', loading: 'در حال بارگذاری...', connected: 'GitHub متصل است',
-      heroTitle: 'پروژه‌ات را به Agent بسپار', heroText: 'مخزن GitHub را وصل کن، درخواست تغییر کد را بنویس و نتیجه را به شکل Branch و Pull Request دریافت کن.',
-      connect: 'اتصال GitHub', connectedAs: 'متصل به', repos: 'مخزن‌ها', refresh: 'به‌روزرسانی',
-      empty: 'برای نمایش مخزن‌ها ابتدا GitHub را وصل کنید.', task: 'درخواست کدنویسی', repo: 'Repository',
-      request: 'درخواست', send: 'ارسال درخواست', account: 'حساب', credits: 'اعتبار',
-      sent: 'درخواست ثبت شد و در صف اجرا قرار گرفت.', failed: 'خطا در اجرای درخواست',
-      required: 'Repository و درخواست الزامی هستند.', connectFirst: 'ابتدا GitHub را وصل کنید.',
-      taskStatus: 'وضعیت کار', queued: 'در صف', running: 'در حال اجرا', planning: 'در حال تحلیل',
-      branch_created: 'Branch ساخته شد', committed: 'Commit ساخته شد', pr_created: 'Pull Request ساخته شد',
-      completed: 'تکمیل شد', noChanges: 'تغییری لازم نبود.'
+      title: 'XAI Code Agent', loading: 'در حال بارگذاری...', error: 'خطا در بارگذاری اطلاعات',
+      connected: 'متصل به GitHub', disconnected: 'GitHub متصل نیست', homeTitle: 'دستیار کدنویسی برای GitHub',
+      homeText: 'مخزن‌های متصل شما و وضعیت حساب در یک نگاه.', repos: 'مخزن‌ها', all: 'همه', refresh: 'به‌روزرسانی',
+      reposText: 'مخزن‌هایی که GitHub App به آن‌ها دسترسی دارد.', empty: 'مخزنی برای نمایش وجود ندارد.',
+      subscription: 'اشتراک', current: 'پلن فعلی', credits: 'اعتبار', proText: 'اعتبار بیشتر برای اجرای وظایف کدنویسی.',
+      buy: 'خرید Pro', buyNote: 'پرداخت از مسیر فعال پرداخت XAI انجام می‌شود.', free: 'رایگان', pro: 'Pro',
+      tabHome: 'خانه', tabRepos: 'مخزن‌ها', tabSubscription: 'اشتراک', private: 'خصوصی', public: 'عمومی',
+      purchaseUnavailable: 'پرداخت Pro از طریق Telegram انجام می‌شود.'
     },
     en: {
-      dir: 'ltr', title: 'Coding Agent', ready: 'Ready', loading: 'Loading...', connected: 'GitHub connected',
-      heroTitle: 'Give your project to the Agent', heroText: 'Connect GitHub, describe a code change, and receive the result as a Branch and Pull Request.',
-      connect: 'Connect GitHub', connectedAs: 'Connected to', repos: 'Repositories', refresh: 'Refresh',
-      empty: 'Connect GitHub first to load repositories.', task: 'Coding request', repo: 'Repository',
-      request: 'Request', send: 'Send request', account: 'Account', credits: 'Credits',
-      sent: 'Request queued for execution.', failed: 'Task execution failed',
-      required: 'Repository and request are required.', connectFirst: 'Connect GitHub first.',
-      taskStatus: 'Task status', queued: 'Queued', running: 'Running', planning: 'Planning',
-      branch_created: 'Branch created', committed: 'Commit created', pr_created: 'Pull Request created',
-      completed: 'Completed', noChanges: 'No changes were needed.'
+      title: 'XAI Code Agent', loading: 'Loading...', error: 'Failed to load account', connected: 'GitHub connected',
+      disconnected: 'GitHub not connected', homeTitle: 'Coding Agent for GitHub', homeText: 'Your connected repositories and account status at a glance.',
+      repos: 'Repositories', all: 'All', refresh: 'Refresh', reposText: 'Repositories accessible to the GitHub App.',
+      empty: 'No repositories available.', subscription: 'Subscription', current: 'Current plan', credits: 'Credits',
+      proText: 'More credits for coding tasks.', buy: 'Get Pro', buyNote: 'Payment is handled through the active XAI payment flow.',
+      free: 'Free', pro: 'Pro', tabHome: 'Home', tabRepos: 'Repositories', tabSubscription: 'Subscription',
+      private: 'Private', public: 'Public', purchaseUnavailable: 'Pro purchase is handled through Telegram.'
     },
     hi: {
-      dir: 'ltr', title: 'कोडिंग एजेंट', ready: 'तैयार', loading: 'लोड हो रहा है...', connected: 'GitHub कनेक्ट है',
-      heroTitle: 'अपना प्रोजेक्ट Agent को दें', heroText: 'GitHub कनेक्ट करें, कोड बदलाव लिखें और परिणाम Branch और Pull Request के रूप में पाएँ।',
-      connect: 'GitHub कनेक्ट करें', connectedAs: 'कनेक्टेड', repos: 'Repositories', refresh: 'रिफ्रेश',
-      empty: 'Repositories देखने के लिए पहले GitHub कनेक्ट करें।', task: 'कोडिंग अनुरोध', repo: 'Repository',
-      request: 'अनुरोध', send: 'अनुरोध भेजें', account: 'खाता', credits: 'क्रेडिट',
-      sent: 'अनुरोध कतार में भेज दिया गया है।', failed: 'कार्य विफल हुआ',
-      required: 'Repository और अनुरोध आवश्यक हैं।', connectFirst: 'पहले GitHub कनेक्ट करें।',
-      taskStatus: 'कार्य स्थिति', queued: 'कतार में', running: 'चल रहा है', planning: 'विश्लेषण हो रहा है',
-      branch_created: 'Branch बनाई गई', committed: 'Commit बनाया गया', pr_created: 'Pull Request बनाया गया',
-      completed: 'पूरा हुआ', noChanges: 'कोई बदलाव आवश्यक नहीं था।'
+      title: 'XAI Code Agent', loading: 'लोड हो रहा है...', error: 'खाता लोड नहीं हो सका', connected: 'GitHub कनेक्ट है',
+      disconnected: 'GitHub कनेक्ट नहीं है', homeTitle: 'GitHub के लिए Coding Agent', homeText: 'आपके कनेक्टेड repositories और account status एक जगह।',
+      repos: 'Repositories', all: 'सभी', refresh: 'रिफ्रेश', reposText: 'GitHub App के लिए उपलब्ध repositories।',
+      empty: 'कोई repository उपलब्ध नहीं है।', subscription: 'सब्सक्रिप्शन', current: 'वर्तमान प्लान', credits: 'क्रेडिट',
+      proText: 'Coding tasks के लिए अधिक credits।', buy: 'Pro लें', buyNote: 'Payment सक्रिय XAI payment flow से होगा.',
+      free: 'Free', pro: 'Pro', tabHome: 'होम', tabRepos: 'Repositories', tabSubscription: 'सब्सक्रिप्शन',
+      private: 'Private', public: 'Public', purchaseUnavailable: 'Pro purchase Telegram के माध्यम से होगा.'
     }
   };
 
   let lang = localStorage.getItem('xai_lang') || 'fa';
   let me = null;
+  let repositories = [];
   const initData = tg?.initData || '';
 
-  function headers() {
-    return { 'Content-Type': 'application/json', 'Authorization': `tma ${initData}` };
-  }
-
+  function headers() { return { 'Content-Type': 'application/json', Authorization: `tma ${initData}` }; }
   async function api(path, options = {}) {
     const response = await fetch(path, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
     let data = {};
@@ -71,137 +51,111 @@
   function render() {
     const c = copy[lang] || copy.fa;
     document.documentElement.lang = lang;
-    document.documentElement.dir = c.dir;
-    $('title').textContent = c.title;
-    status.textContent = me ? (me.github_connected ? c.connected : c.ready) : c.loading;
-    $('heroTitle').textContent = c.heroTitle;
-    $('heroText').textContent = c.heroText;
-    connectBtn.textContent = c.connect;
-    $('repoTitle').textContent = c.repos;
-    refreshBtn.textContent = c.refresh;
-    $('taskTitle').textContent = c.task;
-    $('repoLabel').textContent = c.repo;
-    $('requestLabel').textContent = c.request;
-    taskBtn.textContent = c.send;
-    $('accountTitle').textContent = c.account;
-    $('creditsLabel').textContent = c.credits;
-    languageBtn.textContent = 'English / हिन्दी / فارسی';
-    $('requestInput').placeholder = lang === 'fa' ? 'مثلاً: خطای ورود را پیدا و اصلاح کن' : lang === 'hi' ? 'उदाहरण: लॉगिन की समस्या खोजकर ठीक करें' : 'Example: find and fix the login error';
-    $('plan').textContent = me?.plan || '—';
+    document.documentElement.dir = lang === 'fa' ? 'rtl' : 'ltr';
+    document.title = c.title;
+    $('homeTitle').textContent = c.homeTitle;
+    $('homeText').textContent = c.homeText;
+    $('homeReposTitle').textContent = c.repos;
+    $('homeReposButton').textContent = c.all;
+    $('reposTitle').textContent = c.repos;
+    $('reposText').textContent = c.reposText;
+    $('refresh').textContent = c.refresh;
+    $('subscriptionTitle').textContent = c.subscription;
+    $('currentLabel').textContent = c.current;
+    $('subscriptionCreditsLabel').textContent = c.credits;
+    $('quotaLabel').textContent = c.credits;
+    $('proText').textContent = c.proText;
+    $('buyButton').textContent = c.buy;
+    $('buyNote').textContent = c.buyNote;
+    $('tabHome').textContent = c.tabHome;
+    $('tabRepos').textContent = c.tabRepos;
+    $('tabSubscription').textContent = c.tabSubscription;
+    $('connection').textContent = me?.github_connected ? c.connected : c.disconnected;
     $('credits').textContent = me?.credits ?? '—';
+    $('subscriptionCredits').textContent = me?.credits ?? '—';
+    $('plan').textContent = me?.plan === 'pro' || me?.plan === 'pro_plus' ? me.plan : c.free;
+    $('currentPlan').textContent = me?.plan === 'pro' || me?.plan === 'pro_plus' ? me.plan : c.free;
+
+    const profile = me?.github_profile || {};
+    $('profileName').textContent = profile.name || profile.login || me?.github_login || 'GitHub';
+    $('profileLogin').textContent = profile.login ? `@${profile.login}` : '';
+    $('avatar').src = profile.avatar_url || 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+    $('avatar').alt = profile.login || 'GitHub';
+    showRepos(repositories);
+  }
+
+  function repoElement(repo) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'repo';
+    const icon = document.createElement('span');
+    icon.className = 'repo-icon';
+    icon.textContent = (repo.name || repo.full_name || 'R').slice(0, 1).toUpperCase();
+    const body = document.createElement('span');
+    body.className = 'repo-body';
+    const title = document.createElement('strong');
+    title.textContent = repo.name || repo.full_name;
+    const meta = document.createElement('span');
+    const visibility = repo.private ? (copy[lang] || copy.fa).private : (copy[lang] || copy.fa).public;
+    meta.textContent = `${repo.owner || repo.full_name?.split('/')[0] || ''} · ${visibility}`;
+    body.append(title, meta);
+    item.append(icon, body);
+    item.addEventListener('click', () => { if (repo.html_url) tg?.openLink ? tg.openLink(repo.html_url) : (window.location.href = repo.html_url); });
+    return item;
   }
 
   function showRepos(items) {
-    const box = $('repos');
-    if (!items.length) { box.textContent = (copy[lang] || copy.fa).empty; return; }
-    box.innerHTML = '';
-    items.forEach((repo) => {
-      const button = document.createElement('button');
-      button.className = 'ghost full';
-      button.type = 'button';
-      button.textContent = repo.full_name;
-      button.addEventListener('click', () => { $('repoInput').value = repo.full_name; });
-      box.appendChild(button);
+    repositories = items || [];
+    const boxes = [$('repos'), $('homeRepos')];
+    boxes.forEach((box) => {
+      box.innerHTML = '';
+      if (!repositories.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty';
+        empty.textContent = (copy[lang] || copy.fa).empty;
+        box.appendChild(empty);
+        return;
+      }
+      repositories.slice(0, box.id === 'homeRepos' ? 5 : 100).forEach((repo) => box.appendChild(repoElement(repo)));
     });
   }
 
-  async function loadMe() {
-    if (!initData) {
-      status.textContent = 'Open this page inside Telegram.';
-      return;
-    }
+  function openPage(page) {
+    document.querySelectorAll('.page').forEach((el) => el.classList.toggle('active', el.id === `page-${page}`));
+    document.querySelectorAll('.tab').forEach((el) => el.classList.toggle('active', el.dataset.page === page));
+    if (tg?.HapticFeedback) tg.HapticFeedback.selectionChanged();
+  }
+
+  async function load() {
+    if (!initData) { $('loading').hidden = true; $('error').hidden = false; $('error').textContent = 'Open this page inside Telegram.'; return; }
     try {
       me = await api('/api/miniapp/me');
-      if (me.language && ['fa', 'en', 'hi'].includes(me.language)) {
-        lang = me.language;
-        localStorage.setItem('xai_lang', lang);
-      }
+      lang = ['fa', 'en', 'hi'].includes(me.language) ? me.language : lang;
+      localStorage.setItem('xai_lang', lang);
       render();
-      if (me.github_connected) await loadRepos();
-    } catch (error) {
-      status.textContent = error.message;
-    }
-  }
-
-  async function loadRepos() {
-    try {
-      const data = await api('/api/miniapp/repos');
-      showRepos(data.repositories || []);
-    } catch (error) {
-      showRepos([]);
-      status.textContent = error.message;
-    }
-  }
-
-  connectBtn.addEventListener('click', async () => {
-    try {
-      const data = await api('/api/miniapp/github/connect');
-      if (data.url) window.location.href = data.url;
-    } catch (error) {
-      status.textContent = error.message;
-    }
-  });
-
-  refreshBtn.addEventListener('click', async () => {
-    await loadMe();
-  });
-
-  taskBtn.addEventListener('click', async () => {
-    const c = copy[lang] || copy.fa;
-    const repo = $('repoInput').value.trim();
-    const request = $('requestInput').value.trim();
-    if (!repo || !request) {
-      taskResult.hidden = false;
-      taskResult.textContent = c.required;
-      return;
-    }
-    taskBtn.disabled = true;
-    taskResult.hidden = false;
-    taskResult.textContent = c.loading;
-    try {
-      const result = await api('/api/miniapp/task', {
-        method: 'POST',
-        body: JSON.stringify({ repository: repo, request, language: lang })
-      });
-      taskResult.textContent = `${c.sent} ${c.taskStatus}: ${c[result.status] || result.status}`;
-      pollTask(result.task_id);
-      await loadMe();
-    } catch (error) {
-      taskResult.textContent = `${c.failed}: ${error.message}`;
-    } finally {
-      taskBtn.disabled = false;
-    }
-  });
-
-  async function pollTask(taskId) {
-    const c = copy[lang] || copy.fa;
-    for (let i = 0; i < 120; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      try {
-        const task = await api(`/api/miniapp/task/${encodeURIComponent(taskId)}`);
-        const label = c[task.status] || task.status;
-        taskResult.textContent = `${c.taskStatus}: ${label}`;
-        if (task.status === 'completed') {
-          const extra = task.pull_request_number ? ` PR #${task.pull_request_number}` : '';
-          taskResult.textContent += extra;
-          await loadMe();
-          return;
-        }
-        if (task.status === 'failed' || task.status === 'cancelled') return;
-      } catch (_) {
-        return;
+      if (me.github_connected) {
+        const data = await api('/api/miniapp/repos');
+        showRepos(data.repositories || []);
       }
+      $('loading').hidden = true;
+      $('error').hidden = true;
+      $('app').hidden = false;
+    } catch (error) {
+      $('loading').hidden = true;
+      $('error').hidden = false;
+      $('error').textContent = `${(copy[lang] || copy.fa).error}: ${error.message}`;
     }
   }
 
-  languageBtn.addEventListener('click', async () => {
-    lang = lang === 'fa' ? 'en' : lang === 'en' ? 'hi' : 'fa';
-    localStorage.setItem('xai_lang', lang);
-    render();
-    try { await api('/api/miniapp/language', { method: 'POST', body: JSON.stringify({ language: lang }) }); }
-    catch (error) { status.textContent = error.message; }
+  document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => openPage(tab.dataset.page)));
+  $('homeReposButton').addEventListener('click', () => openPage('repos'));
+  $('refresh').addEventListener('click', load);
+  $('buyButton').addEventListener('click', () => {
+    const username = tg?.initDataUnsafe?.user?.username;
+    if (username && tg?.openTelegramLink) tg.openTelegramLink(`https://t.me/${username}`);
+    else if (tg?.showPopup) tg.showPopup({ title: 'XAI Code Agent', message: (copy[lang] || copy.fa).purchaseUnavailable });
   });
 
   render();
-  loadMe();
+  load();
 })();
