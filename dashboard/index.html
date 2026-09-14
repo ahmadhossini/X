@@ -12,59 +12,36 @@
     <header class="header">
       <div class="profile">
         <img id="avatar" class="avatar" alt="">
-        <div class="profile-copy">
-          <strong id="profileName">—</strong>
-          <span id="profileLogin">—</span>
-        </div>
+        <div class="profile-copy"><strong id="profileName">—</strong><span id="profileLogin">—</span></div>
       </div>
       <span id="connection" class="connection-dot" aria-label="GitHub"></span>
     </header>
 
     <main>
       <section id="page-home" class="page active">
-        <div class="home-top">
-          <h1 id="homeTitle">خانه</h1>
-          <span id="credits" class="credits-badge">—</span>
-        </div>
-        <section class="section">
-          <div class="section-title"><h2 id="homeReposTitle">مخزن‌ها</h2><button id="homeReposButton" class="text-button" type="button">همه</button></div>
-          <div id="homeRepos" class="list"></div>
-        </section>
+        <div class="home-top"><h1 id="homeTitle">خانه</h1><span id="credits" class="credits-badge">—</span></div>
+        <section class="section"><div class="section-title"><h2 id="homeReposTitle">مخزن‌ها</h2><button id="homeReposButton" class="text-button" type="button">همه</button></div><div id="homeRepos" class="list"></div></section>
       </section>
 
       <section id="page-repos" class="page">
-        <div class="page-heading"><h1 id="reposTitle">مخزن‌ها</h1><button id="refresh" class="icon-button" type="button" aria-label="Refresh">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.7-4L3 10m0 0V5m0 5h5M4 13a8 8 0 0 0 14.7 4L21 14m0 0v5m0-5h-5"/></svg>
-        </button></div>
+        <div class="page-heading"><h1 id="reposTitle">مخزن‌ها</h1><button id="refresh" class="icon-button" type="button" aria-label="Refresh"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.7-4L3 10m0 0V5m0 5h5M4 13a8 8 0 0 0 14.7 4L21 14m0 0v5m0-5h-5"/></svg></button></div>
         <div id="repos" class="list"></div>
       </section>
 
       <section id="page-subscription" class="page">
         <div class="page-heading"><h1 id="subscriptionTitle">اشتراک</h1></div>
-        <section class="subscription-card">
-          <div class="subscription-head"><span id="currentPlan">Free</span><span id="subscriptionCredits" class="credits-badge">—</span></div>
-          <div class="price"><span id="proTitle">Pro</span><strong id="proPrice">$7.99</strong><small id="proPeriod">/ ماه</small></div>
-          <button id="buyButton" class="primary" type="button">خرید Pro</button>
-        </section>
+        <section class="subscription-card"><div class="subscription-head"><span id="currentPlan">Free</span><span id="subscriptionCredits" class="credits-badge">—</span></div><div class="price"><span id="proTitle">Pro</span><strong id="proPrice">—</strong><small id="proPeriod">/ ماه</small></div><button id="buyButton" class="primary" type="button">خرید Pro</button></section>
       </section>
     </main>
 
     <nav class="tabs" aria-label="Navigation">
-      <button class="tab active" data-page="home" type="button" aria-label="Home" title="Home">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1V10Z"/></svg>
-      </button>
-      <button class="tab" data-page="repos" type="button" aria-label="Repositories" title="Repositories">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5Zm8 10a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-4Zm-8 0a2 2 0 0 1 2-2h4v8H6a2 2 0 0 1-2-2v-4Zm8-10h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4V3Z"/></svg>
-      </button>
-      <button class="tab" data-page="subscription" type="button" aria-label="Subscription" title="Subscription">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M5 7h11a3 3 0 0 1 0 6H8a3 3 0 0 0 0 6h11"/></svg>
-      </button>
+      <button class="tab active" data-page="home" type="button" aria-label="Home" title="Home"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1V10Z"/></svg></button>
+      <button class="tab" data-page="repos" type="button" aria-label="Repositories" title="Repositories"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5Zm8 10a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-4Zm-8 0a2 2 0 0 1 2-2h4v8H6a2 2 0 0 1-2-2v-4Zm8-10h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4V3Z"/></svg></button>
+      <button class="tab" data-page="subscription" type="button" aria-label="Subscription" title="Subscription"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M5 7h11a3 3 0 0 1 0 6H8a3 3 0 0 0 0 6h11"/></svg></button>
     </nav>
   </div>
 
-  <div id="loading" class="state">در حال بارگذاری...</div>
-  <div id="error" class="state" hidden></div>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="/dashboard/app.js" defer></script>
+  <div id="loading" class="state">در حال بارگذاری...</div><div id="error" class="state" hidden></div>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script><script src="/dashboard/app.js" defer></script>
 </body>
 </html>
