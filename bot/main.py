@@ -100,6 +100,17 @@ def _language_markup() -> types.InlineKeyboardMarkup:
     return markup
 
 
+def _start_inline_keyboard(language: str) -> types.InlineKeyboardMarkup:
+    """Compact native Telegram action buttons shown directly under /start."""
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.row(
+        types.InlineKeyboardButton(t(language, "start_connect_button"), callback_data="start:connect"),
+        types.InlineKeyboardButton(t(language, "start_repos_button"), callback_data="start:repos"),
+    )
+    markup.row(types.InlineKeyboardButton(t(language, "start_task_button"), callback_data="start:task"))
+    return markup
+
+
 def _main_keyboard(language: str) -> types.ReplyKeyboardMarkup:
     markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(
@@ -116,7 +127,7 @@ def _main_keyboard(language: str) -> types.ReplyKeyboardMarkup:
 def _set_user_commands(bot: TeleBot, user_id: int, language: str) -> None:
     descriptions = {
         "en": {"start": "Start XAI Code Agent", "connect": "Connect GitHub", "repos": "List repositories", "task": "Create a code change", "balance": "Show credits and plan", "language": "Change language", "disconnect": "Disconnect GitHub", "help": "Show help"},
-        "hi": {"start": "XAI Code Agent शुरू करें", "connect": "GitHub कनेक्ट करें", "repos": "Repositories देखें", "task": "Code change बनाएँ", "balance": "क्रेडिट और प्लान देखें", "language": "भाषा बदलें", "disconnect": "GitHub डिस्कनेक्ट करें", "help": "मदद देखें"},
+        "hi": {"start": "XAI Code Agent शुरू करें", "connect": "GitHub कनेक्ट करें", "repos": "Repositories देखें", "task": "Code change बनाएँ", "balance": "क्रेडिट और प्लान देखें", "language": "भाषा बदलें", "disconnect": "GitHub से संबंध हटाएँ", "help": "मदद देखें"},
         "fa": {"start": "شروع XAI Code Agent", "connect": "اتصال GitHub", "repos": "نمایش مخزن‌ها", "task": "ایجاد تغییر کد", "balance": "نمایش اعتبار و پلن", "language": "تغییر زبان", "disconnect": "قطع اتصال GitHub", "help": "نمایش راهنما"},
     }
     d = descriptions.get(language, descriptions["en"])
@@ -152,7 +163,7 @@ def build_bot() -> TeleBot:
             if installation:
                 bot.reply_to(message, t(language, "github_connected", login=installation.github_login or "GitHub"), reply_markup=_main_keyboard(language))
                 return
-        bot.reply_to(message, t(language, "welcome"), reply_markup=_main_keyboard(language), parse_mode="HTML")
+        bot.reply_to(message, t(language, "welcome"), reply_markup=_start_inline_keyboard(language), parse_mode="HTML")
 
     @bot.message_handler(commands=["help"])
     def help_command(message: Message) -> None:
@@ -183,6 +194,22 @@ def build_bot() -> TeleBot:
             return
         language = _language(message.from_user.id)
         bot.reply_to(message, t(language, "choose_language"), reply_markup=_language_markup())
+
+    @bot.callback_query_handler(func=lambda call: bool(call.data and call.data.startswith("start:")))
+    def start_action_callback(call: CallbackQuery) -> None:
+        if not call.from_user or not call.data:
+            return
+        language = _language(call.from_user.id)
+        action = call.data.split(":", 1)[1]
+        bot.answer_callback_query(call.id)
+        if not call.message:
+            return
+        if action == "connect":
+            bot.send_message(call.message.chat.id, t(language, "connect_button_hint"), reply_markup=_connect_markup(call.from_user.id, language), parse_mode="HTML")
+        elif action == "repos":
+            repositories(call.message)
+        elif action == "task":
+            bot.send_message(call.message.chat.id, t(language, "task_format"), reply_markup=_main_keyboard(language))
 
     @bot.callback_query_handler(func=lambda call: bool(call.data and call.data.startswith("lang:")))
     def language_callback(call: CallbackQuery) -> None:
