@@ -5,7 +5,6 @@ from pydantic import BaseModel, Field
 
 from api.miniapp import _auth_user, _init_data
 from billing.plans import PLANS, get_plan
-from billing.stars import STAR_PRICES, StarsPaymentError, create_invoice_link
 from billing.ton import TonPaymentError, create_usdt_order, get_usdt_order
 
 router = APIRouter(prefix="/api/miniapp/billing", tags=["miniapp-billing"])
@@ -30,28 +29,12 @@ def plans(
                 "duration_days": plan.duration_days,
                 "credits": plan.credits,
                 "subscription": plan.subscription,
-                "stars": STAR_PRICES[plan.key],
             }
             for plan in PLANS.values()
         ],
         "crypto_asset": "USDT",
         "crypto_network": "TON",
     }
-
-
-@router.post("/stars")
-def stars(
-    payload: PlanRequest,
-    authorization: str | None = Header(default=None),
-    x_telegram_init_data: str | None = Header(default=None),
-) -> dict[str, str | int]:
-    user = _auth_user(_init_data(authorization, x_telegram_init_data))
-    try:
-        plan = get_plan(payload.plan)
-        url = create_invoice_link(user.telegram_id, plan.key)
-    except (ValueError, KeyError, StarsPaymentError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"plan": plan.key, "stars": STAR_PRICES[plan.key], "invoice_url": url}
 
 
 @router.post("/crypto")
