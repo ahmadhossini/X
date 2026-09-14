@@ -20,6 +20,17 @@ def _sync_total_credits(user: User) -> None:
     user.credits = user.subscription_credits + user.topup_credits
 
 
+def _validate_payment_amount(plan: Plan, amount_usd_cents: int) -> int:
+    """Require the payment amount to exactly match the selected plan price."""
+    try:
+        amount = int(amount_usd_cents)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Invalid payment amount") from exc
+    if amount != plan.price_usd_cents:
+        raise ValueError("Payment amount does not match plan price")
+    return amount
+
+
 def _load_existing_payment(db, provider: str, payment_id: str, user_id: int) -> Payment | None:
     """Load a payment idempotently and prevent cross-user payment-id reuse."""
     existing = db.scalar(
@@ -47,6 +58,7 @@ def activate_paid_plan(
 ) -> bool:
     """Atomically record a payment and grant credits exactly once."""
     plan: Plan = get_plan(plan_key)
+    amount_usd_cents = _validate_payment_amount(plan, amount_usd_cents)
     if not plan.subscription:
         return activate_topup(
             telegram_id,
@@ -127,6 +139,7 @@ def activate_topup(
     plan = get_plan(plan_key)
     if plan.subscription:
         raise ValueError("Plan is not a top-up")
+    amount_usd_cents = _validate_payment_amount(plan, amount_usd_cents)
 
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
@@ -167,7 +180,9 @@ def _record_payment(
     existing: Payment | None,
     now: datetime,
 ) -> None:
-    amount_usd = int(round(amount_usd_cents / 100))
+    # amount_usd_cents is the authoritative monetary value. Keep amount_usd
+    # only as a legacy whole-dollar compatibility field for existing schema/users.
+    amount_usd = amount_usd_cents // 100
     payload = json.dumps(raw_payload or {}, ensure_ascii=False)[:20000]
     if existing:
         existing.status = "paid"
