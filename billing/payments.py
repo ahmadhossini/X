@@ -14,6 +14,21 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _load_existing_payment(db, provider: str, payment_id: str, user_id: int) -> Payment | None:
+    """Load a payment idempotently and prevent cross-user payment-id reuse."""
+    existing = db.scalar(
+        select(Payment)
+        .where(
+            Payment.provider == provider,
+            Payment.provider_payment_id == payment_id,
+        )
+        .with_for_update()
+    )
+    if existing and existing.user_id != user_id:
+        raise ValueError("Payment belongs to another user")
+    return existing
+
+
 def activate_paid_plan(
     telegram_id: int,
     plan_key: str,
@@ -42,12 +57,7 @@ def activate_paid_plan(
         if not user:
             raise ValueError("User not found")
 
-        existing = db.scalar(
-            select(Payment).where(
-                Payment.provider == payment_method,
-                Payment.provider_payment_id == payment_id,
-            ).with_for_update()
-        )
+        existing = _load_existing_payment(db, payment_method, payment_id, user.id)
         if existing and existing.status == "paid":
             return False
 
@@ -115,12 +125,7 @@ def activate_topup(
         user = db.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
         if not user:
             raise ValueError("User not found")
-        existing = db.scalar(
-            select(Payment).where(
-                Payment.provider == payment_method,
-                Payment.provider_payment_id == payment_id,
-            ).with_for_update()
-        )
+        existing = _load_existing_payment(db, payment_method, payment_id, user.id)
         if existing and existing.status == "paid":
             return False
 
