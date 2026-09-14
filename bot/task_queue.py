@@ -5,6 +5,7 @@ import logging
 import os
 import socket
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -12,7 +13,8 @@ from sqlalchemy import select, update
 from telebot import TeleBot
 
 from billing.service import complete_task, fail_task, transition_task
-from code_agent.agent import AgentError, execute_task
+from code_agent.agent import AgentError, execute_task, repair_task
+from code_agent.github import GitHubRepo, GitHubRepoError
 from code_agent.github_app import GitHubAppError
 from core.config import settings
 from database.models import Task
@@ -24,7 +26,10 @@ CLAIM_LEASE_SECONDS = 60 * 60
 HEARTBEAT_SECONDS = 30.0
 POLL_SECONDS = 1.0
 RECOVERY_CHECK_SECONDS = 60.0
-_ACTIVE_STATUSES = ("running", "planning", "branch_created", "committed", "pr_created", "changes_applied")
+VALIDATION_POLL_SECONDS = 6.0
+VALIDATION_TIMEOUT_SECONDS = 300.0
+MAX_REPAIR_ATTEMPTS = 3
+_ACTIVE_STATUSES = ("running", "planning", "branch_created", "validating", "retrying", "committed", "pr_created", "changes_applied")
 
 
 def _now() -> datetime:
@@ -32,7 +37,6 @@ def _now() -> datetime:
 
 
 def recover_stale_tasks() -> int:
-    """Requeue expired work so the persistent worker can reconcile it safely."""
     cutoff = _now() - timedelta(seconds=CLAIM_LEASE_SECONDS)
     recovered = 0
     with SessionLocal() as db:
@@ -105,6 +109,47 @@ def _run_async(func, *args):
         asyncio.set_event_loop(None)
 
 
+def _validate_commit(repository: str, installation_id: int, commit_sha: str) -> dict:
+    """Wait for the repository CI workflow attached to this exact commit."""
+    async def _run() -> dict:
+        repo = GitHubRepo(repository, installation_id)
+        try:
+            deadline = time.monotonic() + VALIDATION_TIMEOUT_SECONDS
+            while time.monotonic() < deadline:
+                runs = await repo.workflow_runs_for_commit(commit_sha)
+                relevant = []
+                for run in runs:
+                    run_id = run.get("id")
+                    if not isinstance(run_id, int):
+                        continue
+                    if run.get("event") in {"pull_request", "push"} or run.get("name") == "XAI Agent Validation":
+                        relevant.append(run)
+                if relevant:
+                    latest = relevant[0]
+                    status = str(latest.get("status") or "")
+                    conclusion = str(latest.get("conclusion") or "")
+                    if status == "completed":
+                        if conclusion == "success":
+                            return {"passed": True, "run_id": latest.get("id"), "name": latest.get("name")}
+                        jobs = await repo.workflow_run_jobs(int(latest["id"]))
+                        failures = [
+                            f"{job.get('name', 'unknown')}: {job.get('conclusion', 'unknown')}"
+                            for job in jobs
+                            if job.get("conclusion") not in {None, "success", "skipped"}
+                        ]
+                        return {
+                            "passed": False,
+                            "run_id": latest.get("id"),
+                            "name": latest.get("name"),
+                            "failure": "; ".join(failures)[:12000] or f"Workflow conclusion: {conclusion or 'failure'}",
+                        }
+                await asyncio.sleep(VALIDATION_POLL_SECONDS)
+            return {"passed": False, "failure": "Validation workflow did not complete within 5 minutes."}
+        finally:
+            await repo.aclose()
+    return _run_async(_run)
+
+
 def _notify(task: Task, success: bool, result: dict | None = None) -> None:
     if not task.chat_id:
         return
@@ -119,20 +164,20 @@ def _notify(task: Task, success: bool, result: dict | None = None) -> None:
         pr = result.get("pull_request") or {}
         pr_url = pr.get("url") or ""
         if lang == "fa":
-            text = f"تغییرات کد آماده شد.\nمخزن: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
+            text = f"تغییرات با موفقیت اعتبارسنجی و آماده شد.\nمخزن: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
         elif lang == "hi":
-            text = f"Code changes तैयार हैं.\nRepository: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
+            text = f"Code changes सफलतापूर्वक validate होकर तैयार हैं.\nRepository: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
         else:
-            text = f"Code changes are ready.\nRepository: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
+            text = f"Code changes passed validation and are ready.\nRepository: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
         if pr_url:
             text += f"\nPR: {pr_url}"
     else:
         if lang == "fa":
-            text = "اجرای کار ناموفق بود و اعتبار رزرو‌شده برگردانده شد."
+            text = "اجرای کار پس از ۳ تلاش اعتبارسنجی ناموفق بود. تغییرات ایجادشده روی Branch باقی مانده‌اند و اعتبار مصرف‌شده بازگردانده نشد."
         elif lang == "hi":
-            text = "कार्य विफल हुआ और आरक्षित क्रेडिट वापस कर दिए गए।"
+            text = "3 validation attempts के बाद कार्य विफल हुआ। किए गए बदलाव Branch पर रखे गए हैं और खर्च किया गया क्रेडिट वापस नहीं किया गया।"
         else:
-            text = "The task failed and the reserved credits were refunded."
+            text = "The task failed after 3 validation attempts. The generated changes remain on the branch, and the spent credits were not refunded."
     try:
         bot.send_message(task.chat_id, text[:4000])
     except Exception:
@@ -166,15 +211,50 @@ def _execute_claimed(task: Task, worker_id: str) -> None:
 
         side_effects_applied = bool(result.get("commit") or result.get("branch") or result.get("pull_request"))
         branch = result.get("branch")
-        if not branch:
-            raise AgentError("Agent did not return a branch")
-        if not transition_task(task.id, "planning", "branch_created", branch=branch):
-            raise AgentError("Task state changed while recording branch")
         commit_sha = result.get("commit")
-        if not commit_sha:
-            raise AgentError("Agent did not return a commit")
-        if not transition_task(task.id, "branch_created", "committed", commit_sha=commit_sha):
-            raise AgentError("Task state changed while recording commit")
+        if not branch or not commit_sha:
+            raise AgentError("Agent did not return a branch and commit")
+        if not transition_task(task.id, "planning", "branch_created", branch=branch, commit_sha=commit_sha):
+            raise AgentError("Task state changed while recording branch")
+
+        validation = _validate_commit(task.repository, task.installation_id, commit_sha)
+        if not transition_task(task.id, "branch_created", "validating"):
+            raise AgentError("Task state changed while entering validation")
+
+        for attempt in range(1, MAX_REPAIR_ATTEMPTS + 1):
+            if validation.get("passed"):
+                break
+            failure = str(validation.get("failure") or "Validation failed without a detailed reason")
+            if attempt >= MAX_REPAIR_ATTEMPTS:
+                raise AgentError(f"Validation failed after {MAX_REPAIR_ATTEMPTS} attempts: {failure}")
+            if not transition_task(task.id, "validating", "retrying", error=f"Validation attempt {attempt} failed: {failure}"):
+                raise AgentError("Task state changed before validation retry")
+            repair = _run_async(
+                repair_task,
+                settings.gemini_api_key,
+                settings.gemini_model,
+                task.repository,
+                branch,
+                task.request,
+                failure,
+                task.installation_id,
+                task.language,
+                task.id,
+                attempt,
+            )
+            commit_sha = repair.get("commit")
+            if not commit_sha:
+                raise AgentError("Repair agent did not return a commit")
+            result["commit"] = commit_sha
+            result["changes"] = sorted(set(result.get("changes", [])) | set(repair.get("changes", [])))
+            if not transition_task(task.id, "retrying", "validating", commit_sha=commit_sha, error=None):
+                raise AgentError("Task state changed after validation retry")
+            validation = _validate_commit(task.repository, task.installation_id, commit_sha)
+
+        if not validation.get("passed"):
+            raise AgentError("Validation did not pass")
+        if not transition_task(task.id, "validating", "committed", commit_sha=commit_sha):
+            raise AgentError("Task state changed while recording validated commit")
         pr = result.get("pull_request") or {}
         pr_number = pr.get("number")
         if pr_number:
@@ -183,7 +263,7 @@ def _execute_claimed(task: Task, worker_id: str) -> None:
         complete_task(task.id, settings.gemini_model)
         _notify(task, True, result=result)
         logger.info("Task completed task_id=%s repository=%s", task.id, task.repository)
-    except (AgentError, GitHubAppError, RuntimeError) as exc:
+    except (AgentError, GitHubAppError, GitHubRepoError, RuntimeError) as exc:
         logger.exception("Task failed task_id=%s repository=%s", task.id, task.repository)
         fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not side_effects_applied)
         _notify(task, False)

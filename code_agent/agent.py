@@ -146,43 +146,53 @@ CONTEXT:
 
 
 async def reconcile_task(repo: GitHubRepo, base: str, request: str, task_id: str) -> dict[str, Any] | None:
-    """Recover a GitHub side effect from a worker crash without calling Gemini.
-
-    The task branch is deterministic. A commit carrying the task marker is
-    therefore the only commit we are willing to reconnect automatically. We
-    only move a branch when the marker commit is exactly the current head or
-    its single parent is the current head, which guarantees a fast-forward and
-    prevents attaching an unrelated commit to a recovered task.
-    """
+    """Recover the latest agent branch state after a worker crash or restart."""
     marker = f"XAI-TASK:{task_id}"
     branch = _branch_name(request, task_id)
-    marker_commit = await repo.find_task_commit(marker)
-    branch_head: dict[str, Any] | None = None
     try:
         branch_head = await repo.commit(branch)
     except GitHubRepoError:
         branch_head = None
 
-    if marker_commit is None:
+    if branch_head is not None:
+        head_sha = str(branch_head.get("sha") or "")
+        head_message = str(((branch_head.get("commit") or {}).get("message") or ""))
+        if marker in head_message:
+            return {"status": "committed", "summary": "Recovered existing task branch.", "changes": [], "commit": head_sha, "branch": branch}
+
+        # Preserve the original crash-recovery fast-forward case: if the
+        # original task commit was created but the branch ref update was lost,
+        # attaching it is safe only when its parent is the current branch head.
+        marker_commit = await repo.find_task_commit(marker)
+        if marker_commit is not None:
+            marker_sha = str(marker_commit.get("sha") or "")
+            parents = marker_commit.get("parents")
+            parent_sha = parents[0].get("sha") if isinstance(parents, list) and parents and isinstance(parents[0], dict) else None
+            if marker_sha and parent_sha == head_sha:
+                await repo.update_branch(branch, marker_sha)
+                return {"status": "committed", "summary": "Recovered existing task commit.", "changes": [], "commit": marker_sha, "branch": branch}
+
+            # A retry commit can be ahead of the original marker. Walk recent
+            # commits when the GitHub client supports it and recover the branch
+            # head without rewriting history.
+            branch_commits = getattr(repo, "branch_commits", None)
+            if branch_commits is not None:
+                try:
+                    commits = await branch_commits(branch, limit=20)
+                except Exception:
+                    commits = []
+                for commit in commits:
+                    message = str(((commit.get("commit") or {}).get("message") or ""))
+                    if marker in message:
+                        return {"status": "committed", "summary": "Recovered existing task branch.", "changes": [], "commit": head_sha, "branch": branch}
         return None
 
+    marker_commit = await repo.find_task_commit(marker)
+    if marker_commit is None:
+        return None
     marker_sha = str(marker_commit.get("sha") or "")
     if not marker_sha:
         return None
-
-    if branch_head is not None:
-        head_sha = str(branch_head.get("sha") or "")
-        if head_sha == marker_sha:
-            return {"status": "committed", "summary": "Recovered existing task commit.", "changes": [], "commit": marker_sha, "branch": branch}
-        parents = marker_commit.get("parents")
-        parent_sha = parents[0].get("sha") if isinstance(parents, list) and parents and isinstance(parents[0], dict) else None
-        if parent_sha == head_sha:
-            await repo.update_branch(branch, marker_sha)
-            return {"status": "committed", "summary": "Recovered existing task commit.", "changes": [], "commit": marker_sha, "branch": branch}
-        return None
-
-    # The commit exists but the branch does not. Reattach it only when its
-    # parent is the exact base commit used for this task.
     marker_details = await repo.commit(marker_sha)
     parents = marker_details.get("parents")
     parent_sha = parents[0].get("sha") if isinstance(parents, list) and parents and isinstance(parents[0], dict) else None
@@ -209,58 +219,61 @@ async def execute_task(
     try:
         metadata = await repo.repo()
         base = metadata.get("default_branch", "main")
-
         if task_id:
-            try:
-                recovered = await reconcile_task(repo, base, request, task_id)
-            except GitHubRepoError:
-                raise
+            recovered = await reconcile_task(repo, base, request, task_id)
             if recovered is not None:
                 result = recovered
                 if create_pr:
-                    pr = await repo.pull_request(
-                        result["branch"],
-                        base,
-                        f"XAI Agent: recovered task {task_id[:12]}",
-                        f"Recovered automated coding-agent change.\n\nRequest: {request}",
-                    )
-                    result["pull_request"] = {
-                        "number": pr.get("number"),
-                        "url": pr.get("html_url"),
-                        "draft": pr.get("draft", True),
-                    }
+                    pr = await repo.pull_request(result["branch"], base, f"XAI Agent: recovered task {task_id[:12]}", f"Recovered automated coding-agent change.\n\nRequest: {request}")
+                    result["pull_request"] = {"number": pr.get("number"), "url": pr.get("html_url"), "draft": pr.get("draft", True)}
                 return result
-
         context = await build_context(repo, base)
         plan = await plan_changes(api_key, model, request, context, language)
         if not plan["changes"]:
             return {"status": "no_changes", "summary": plan["summary"], "changes": []}
-
         branch = _branch_name(request, task_id)
         await repo.create_branch(branch, base)
         commit_message = f"feat(agent): {plan['summary'][:60] or 'apply requested changes'}"
         if marker:
             commit_message = f"{commit_message} [{marker}]"
         sha = await repo.apply_changes(branch, plan["changes"], commit_message, idempotency_marker=marker)
-        result: dict[str, Any] = {
-            "status": "committed",
-            "summary": plan["summary"],
-            "changes": [c["path"] for c in plan["changes"]],
-            "commit": sha,
-            "branch": branch,
-        }
+        result: dict[str, Any] = {"status": "committed", "summary": plan["summary"], "changes": [c["path"] for c in plan["changes"]], "commit": sha, "branch": branch}
         if create_pr:
-            pr = await repo.pull_request(
-                branch,
-                base,
-                f"XAI Agent: {plan['summary'][:70] or request[:70]}",
-                f"Automated coding-agent change.\n\nRequest: {request}\n\nSummary: {plan['summary']}",
-            )
-            result["pull_request"] = {
-                "number": pr.get("number"),
-                "url": pr.get("html_url"),
-                "draft": pr.get("draft", True),
-            }
+            pr = await repo.pull_request(branch, base, f"XAI Agent: {plan['summary'][:70] or request[:70]}", f"Automated coding-agent change.\n\nRequest: {request}\n\nSummary: {plan['summary']}")
+            result["pull_request"] = {"number": pr.get("number"), "url": pr.get("html_url"), "draft": pr.get("draft", True)}
         return result
+    finally:
+        await repo.aclose()
+
+
+async def repair_task(
+    api_key: str,
+    model: str,
+    repository: str,
+    branch: str,
+    request: str,
+    validation_failure: str,
+    installation_id: int,
+    language: str | None = None,
+    task_id: str | None = None,
+    attempt: int = 1,
+) -> dict[str, Any]:
+    """Generate and apply one repair commit on the existing agent branch."""
+    repo = GitHubRepo(repository, installation_id)
+    try:
+        context = await build_context(repo, branch)
+        repair_request = (
+            f"Original user request: {request}\n\n"
+            f"Validation attempt {attempt} failed. Fix the implementation so the repository passes validation.\n"
+            f"Validation failure:\n{validation_failure[:12000]}\n\n"
+            "Inspect the current branch context and make the smallest safe fix. Do not change CI workflow files, secrets, credentials, or private keys."
+        )
+        plan = await plan_changes(api_key, model, repair_request, context, language)
+        if not plan["changes"]:
+            raise AgentError("Agent could not produce a repair for the validation failure")
+        marker = f"XAI-TASK:{task_id}" if task_id else "XAI-REPAIR"
+        message = f"fix(agent): validation retry {attempt} [{marker} RETRY:{attempt}]"
+        sha = await repo.apply_changes(branch, plan["changes"], message)
+        return {"status": "committed", "summary": plan["summary"], "changes": [c["path"] for c in plan["changes"]], "commit": sha, "branch": branch}
     finally:
         await repo.aclose()
