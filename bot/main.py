@@ -10,7 +10,6 @@ from telebot.types import CallbackQuery, Message
 
 from api.github_connect import create_connect_state
 from billing.service import BillingError, ensure_user_credit_state, estimate_task_credits, reserve_task_credits
-from bot.chat import handle_chat_message
 from bot.locales import t
 from bot.payments import register_payment_handlers, show_plans
 from code_agent.github_app import github_app_get
@@ -337,8 +336,6 @@ def build_bot() -> TeleBot:
             disconnect(message)
         elif text == t(language, "brand_button"):
             bot.send_message(message.chat.id, t(language, "menu_home"), reply_markup=_main_keyboard(language), parse_mode="HTML")
-        elif not text.startswith("/"):
-            handle_chat_message(bot, message)
 
     register_payment_handlers(bot)
     return bot
