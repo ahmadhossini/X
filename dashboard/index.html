@@ -3,60 +3,85 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#ffffff">
+  <meta name="theme-color" content="#0b1020">
+  <meta name="color-scheme" content="dark">
   <title>XAI Code Agent</title>
   <link rel="stylesheet" href="/dashboard/style.css">
 </head>
 <body>
+  <div class="ambient ambient-a"></div><div class="ambient ambient-b"></div>
   <main class="app">
     <header class="topbar">
-      <div>
-        <div class="eyebrow">XAI CODE AGENT</div>
-        <h1 id="title">دستیار کدنویسی</h1>
-      </div>
-      <div id="status" class="status">در حال آماده‌سازی</div>
+      <button class="brand" data-view="home" aria-label="XAI"><span class="brand-mark">X</span><span>XAI <small>CODE AGENT</small></span></button>
+      <div class="top-actions"><span id="status" class="status">...</span><button id="connectBtn" class="icon-btn" type="button" title="GitHub">GH</button></div>
     </header>
 
-    <section class="hero card">
-      <h2 id="heroTitle">پروژه‌ات را به Agent بسپار</h2>
-      <p id="heroText">مخزن GitHub را وصل کن، درخواست تغییر کد را بنویس و نتیجه را به شکل Branch و Pull Request دریافت کن.</p>
-      <button id="connectBtn" class="primary">اتصال GitHub</button>
-    </section>
-
-    <section class="card">
-      <div class="section-head">
-        <h2 id="repoTitle">مخزن‌ها</h2>
-        <button id="refreshBtn" class="ghost">به‌روزرسانی</button>
+    <section id="view-home" class="view active">
+      <div class="hero glass">
+        <div class="hero-kicker">AUTONOMOUS CODE WORKFLOW</div>
+        <h1 id="heroTitle">مشکل GitHub را پیدا کن، اصلاح کن، تأیید کن.</h1>
+        <p id="heroText">XAI خطا را تحلیل می‌کند، تغییر را روی Branch جدا اعمال می‌کند و نتیجه را با Commit و Pull Request تحویل می‌دهد.</p>
+        <button class="primary" data-action="new-task">شروع یک Task</button>
       </div>
-      <div id="repos" class="empty">برای نمایش مخزن‌ها ابتدا GitHub را وصل کنید.</div>
-    </section>
-
-    <section class="card">
-      <h2 id="taskTitle">درخواست کدنویسی</h2>
-      <label for="repoInput" id="repoLabel">Repository</label>
-      <input id="repoInput" autocomplete="off" placeholder="owner/repository">
-      <label for="requestInput" id="requestLabel">درخواست</label>
-      <textarea id="requestInput" rows="5" placeholder="مثلاً: خطای ورود را پیدا و اصلاح کن"></textarea>
-      <button id="taskBtn" class="primary">ارسال درخواست</button>
-      <div id="taskResult" class="result" hidden></div>
-    </section>
-
-    <section class="card compact">
-      <div class="section-head"><h2 id="accountTitle">حساب</h2><span id="plan">Free</span></div>
-      <div class="account-row"><span id="creditsLabel">اعتبار</span><strong id="credits">—</strong></div>
-    </section>
-
-    <section class="card">
-      <div class="section-head">
-        <h2 id="billingTitle">خرید Credits</h2>
-        <span id="billingStatus" class="status">—</span>
+      <div class="stats glass">
+        <div><span id="creditsLabel">Credits</span><strong id="credits">—</strong><small id="plan">Free</small></div>
+        <div><span>GitHub</span><strong id="githubState">—</strong><small id="githubLogin">—</small></div>
       </div>
-      <div id="plans" class="plans"></div>
+      <div class="section-head"><h2>چه چیزی خراب است؟</h2><button class="text-btn" data-view="tasks">همه Taskها</button></div>
+      <div class="task-grid">
+        <button class="task-card glass" data-task-type="actions"><b>Actions</b><span>خطای CI و Workflow</span></button>
+        <button class="task-card glass" data-task-type="pr"><b>Pull Request</b><span>مشکل PR و Checkها</span></button>
+        <button class="task-card glass" data-task-type="conflict"><b>Merge Conflict</b><span>حل تعارض کد</span></button>
+        <button class="task-card glass" data-task-type="deps"><b>Dependencies</b><span>خطای نصب و Build</span></button>
+        <button class="task-card glass" data-task-type="review"><b>Code Review</b><span>یافتن و اصلاح مشکل</span></button>
+      </div>
     </section>
 
-    <section class="card compact">
+    <section id="view-projects" class="view">
+      <div class="page-title"><div><small>WORKSPACE</small><h1>Projects</h1></div><button id="refreshBtn" class="ghost">Refresh</button></div>
+      <div id="repos" class="stack"><div class="empty glass">در حال بارگذاری مخزن‌ها...</div></div>
+      <button id="connectProjects" class="secondary">اتصال GitHub</button>
+    </section>
+
+    <section id="view-tasks" class="view">
+      <div class="page-title"><div><small>ACTIVITY</small><h1>Tasks</h1></div><button class="primary small" data-action="new-task">New Task</button></div>
+      <div class="tabs"><button class="tab active" data-filter="all">All</button><button class="tab" data-filter="running">Running</button><button class="tab" data-filter="done">Done</button></div>
+      <div id="tasksList" class="stack"><div class="empty glass">Taskهای این نشست بعد از اجرا اینجا نمایش داده می‌شوند.</div></div>
+    </section>
+
+    <section id="view-chat" class="view">
+      <div class="page-title"><div><small>ASSISTANT</small><h1>AI Chat</h1></div></div>
+      <div class="chat-note glass"><strong>حالت گفت‌وگو</strong><p>برای سؤال‌های برنامه‌نویسی است. این بخش هیچ تغییری در GitHub ایجاد نمی‌کند.</p></div>
+      <div id="chatMessages" class="chat-messages"></div>
+      <div class="chat-box glass"><textarea id="chatInput" rows="3" maxlength="4000" placeholder="سؤال برنامه‌نویسی خود را بنویسید..."></textarea><button id="chatBtn" class="primary">ارسال سؤال</button></div>
+    </section>
+
+    <section id="view-account" class="view">
+      <div class="page-title"><div><small>ACCOUNT</small><h1>Account</h1></div></div>
+      <div class="account-hero glass"><span class="avatar">X</span><div><strong id="accountLogin">Telegram User</strong><p id="accountPlan">Free plan</p></div></div>
+      <div class="account-list glass">
+        <div><span>Credits</span><strong id="accountCredits">—</strong></div>
+        <div><span>Plan</span><strong id="accountPlanValue">—</strong></div>
+        <div><span>GitHub</span><strong id="accountGithub">—</strong></div>
+      </div>
+      <div class="section-head"><h2>Plans</h2></div><div id="plans" class="plans"></div>
       <button id="languageBtn" class="ghost full">English / हिन्दी / فارسی</button>
     </section>
+
+    <section id="taskComposer" class="modal" hidden>
+      <div class="modal-card glass">
+        <button class="close" data-action="close">×</button><small>NEW CODING TASK</small><h2 id="composerTitle">چه چیزی باید اصلاح شود؟</h2>
+        <div id="typeChips" class="chips"></div>
+        <label for="repoInput">Repository</label><select id="repoInput"><option value="">انتخاب Repository</option></select>
+        <label for="requestInput">توضیح مشکل</label><textarea id="requestInput" rows="5" maxlength="4000" placeholder="خطا، هدف یا مشکل را دقیق توضیح دهید..."></textarea>
+        <div class="cost-row"><span>Estimated Credits</span><strong id="estimatedCost">—</strong></div>
+        <button id="taskBtn" class="primary">Analyze & Fix</button><div id="taskResult" class="result" hidden></div>
+      </div>
+    </section>
+
+    <nav class="bottom-nav">
+      <button data-view="home" class="nav active"><b>⌂</b><span>Home</span></button><button data-view="projects" class="nav"><b>▦</b><span>Projects</span></button><button data-view="tasks" class="nav"><b>✓</b><span>Tasks</span></button><button data-view="chat" class="nav"><b>AI</b><span>Chat</span></button><button data-view="account" class="nav"><b>◉</b><span>Account</span></button>
+    </nav>
   </main>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="/dashboard/app.js" defer></script>
