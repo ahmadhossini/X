@@ -21,10 +21,14 @@ ACTIVE_TASK_STATUSES = (
     "running",
     "planning",
     "branch_created",
+    "changes_applied",
+    "validating",
+    "retrying",
     "committed",
     "pr_created",
-    "changes_applied",
 )
+
+SUPPORTED_TASK_TYPES = {"code", "actions", "pr", "conflict", "deps", "review"}
 
 
 class BillingError(RuntimeError):
@@ -65,15 +69,19 @@ def ensure_user_credit_state(telegram_id: int) -> tuple[int, str]:
         return user.credits, user.plan
 
 
-def estimate_task_credits(request: str) -> int:
+def estimate_task_credits(request: str, task_type: str = "code") -> int:
     text = request.lower()
+    if task_type == "conflict":
+        return 4
+    if task_type in {"actions", "pr", "deps"}:
+        return 3
+    if task_type == "review":
+        return 2
     heavy_terms = (
         "bug", "debug", "error", "exception", "failing", "broken", "crash",
         "باگ", "خطا", "ارور", "خرابی", "رفع مشکل", "دیباگ",
     )
-    if any(term in text for term in heavy_terms):
-        return 10
-    return 5
+    return 10 if any(term in text for term in heavy_terms) else 5
 
 
 def reserve_task_credits(
@@ -86,9 +94,12 @@ def reserve_task_credits(
     model: str = "",
     chat_id: int | None = None,
     language: str = "en",
+    task_type: str = "code",
 ) -> CreditReservation:
     if credits <= 0:
         raise BillingError("Invalid task reservation")
+    if task_type not in SUPPORTED_TASK_TYPES:
+        raise BillingError("Unsupported task type")
 
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
@@ -137,6 +148,7 @@ def reserve_task_credits(
             user_id=user.id,
             installation_id=installation.installation_id,
             repository=repository,
+            task_type=task_type,
             request=request[:4000],
             model=model[:255],
             status="queued",
@@ -162,12 +174,14 @@ def reserve_task_credits(
 def transition_task(task_id: str, from_status: str, to_status: str, **fields: object) -> bool:
     allowed = {
         "queued": {"running", "failed", "cancelled"},
-        "running": {"planning", "branch_created", "changes_applied", "failed", "cancelled"},
+        "running": {"planning", "failed", "cancelled"},
         "planning": {"branch_created", "failed", "cancelled"},
-        "branch_created": {"committed", "failed", "cancelled"},
-        "committed": {"pr_created", "failed", "cancelled"},
+        "branch_created": {"changes_applied", "validating", "failed", "cancelled"},
+        "changes_applied": {"validating", "failed", "cancelled"},
+        "validating": {"retrying", "committed", "failed", "cancelled"},
+        "retrying": {"planning", "failed", "cancelled"},
+        "committed": {"pr_created", "completed", "failed", "cancelled"},
         "pr_created": {"completed", "failed", "cancelled"},
-        "changes_applied": {"completed", "failed", "cancelled"},
     }
     if to_status not in allowed.get(from_status, set()):
         return False
