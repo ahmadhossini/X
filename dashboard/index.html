@@ -8,45 +8,71 @@
   <link rel="stylesheet" href="/dashboard/style.css">
 </head>
 <body>
-  <main class="app">
-    <header class="topbar">
-      <div>
-        <div class="eyebrow">XAI CODE AGENT</div>
-        <h1 id="title">دستیار کدنویسی</h1>
+  <div id="app" class="app" hidden>
+    <header class="header">
+      <div class="profile">
+        <img id="avatar" class="avatar" alt="">
+        <div class="profile-copy">
+          <strong id="profileName">—</strong>
+          <span id="profileLogin">—</span>
+        </div>
       </div>
-      <div id="status" class="status">در حال آماده‌سازی</div>
+      <span id="connection" class="connection">—</span>
     </header>
 
-    <section class="hero card">
-      <h2 id="heroTitle">پروژه‌ات را به Agent بسپار</h2>
-      <p id="heroText">مخزن GitHub را وصل کن، درخواست تغییر کد را بنویس و نتیجه را به شکل Branch و Pull Request دریافت کن.</p>
-      <button id="connectBtn" class="primary">اتصال GitHub</button>
-    </section>
+    <main>
+      <section id="page-home" class="page active">
+        <div class="welcome">
+          <span id="homeEyebrow" class="eyebrow">XAI CODE AGENT</span>
+          <h1 id="homeTitle">دستیار کدنویسی برای GitHub</h1>
+          <p id="homeText">مخزن‌های متصل شما و وضعیت حساب در یک نگاه.</p>
+        </div>
+        <section class="section">
+          <div class="section-title"><h2 id="homeReposTitle">مخزن‌های شما</h2><button id="homeReposButton" class="text-button" type="button">همه</button></div>
+          <div id="homeRepos" class="list"></div>
+        </section>
+        <section class="quota">
+          <div><span id="quotaLabel">اعتبار باقی‌مانده</span><strong id="credits">—</strong></div>
+          <span id="plan" class="plan">Free</span>
+        </section>
+      </section>
 
-    <section class="card">
-      <div class="section-head">
-        <h2 id="repoTitle">مخزن‌ها</h2>
-        <button id="refreshBtn" class="ghost">به‌روزرسانی</button>
-      </div>
-      <div id="repos" class="empty">برای نمایش مخزن‌ها ابتدا GitHub را وصل کنید.</div>
-    </section>
+      <section id="page-repos" class="page">
+        <div class="page-heading"><h1 id="reposTitle">مخزن‌ها</h1><button id="refresh" class="text-button" type="button">به‌روزرسانی</button></div>
+        <p id="reposText" class="muted">مخزن‌هایی که GitHub App به آن‌ها دسترسی دارد.</p>
+        <div id="repos" class="list"></div>
+      </section>
 
-    <section class="card">
-      <h2 id="taskTitle">درخواست کدنویسی</h2>
-      <label for="repoInput" id="repoLabel">Repository</label>
-      <input id="repoInput" autocomplete="off" placeholder="owner/repository">
-      <label for="requestInput" id="requestLabel">درخواست</label>
-      <textarea id="requestInput" rows="5" placeholder="مثلاً: خطای ورود را پیدا و اصلاح کن"></textarea>
-      <button id="taskBtn" class="primary">ارسال درخواست</button>
-      <div id="taskResult" class="result" hidden></div>
-    </section>
+      <section id="page-subscription" class="page">
+        <div class="page-heading"><h1 id="subscriptionTitle">اشتراک</h1></div>
+        <section class="plan-card">
+          <span id="currentLabel" class="muted">پلن فعلی</span>
+          <h2 id="currentPlan">Free</h2>
+          <div class="credit-line"><span id="subscriptionCreditsLabel">اعتبار</span><strong id="subscriptionCredits">—</strong></div>
+        </section>
+        <section class="pro-card">
+          <h2 id="proTitle">Pro</h2>
+          <p id="proText">اعتبار بیشتر برای اجرای وظایف کدنویسی.</p>
+          <ul id="proFeatures">
+            <li>100 اعتبار در ماه</li>
+            <li>دسترسی بدون محدودیت به قابلیت‌های اصلی Agent</li>
+            <li>اجرای وظایف از طریق Telegram Bot</li>
+          </ul>
+          <button id="buyButton" class="primary" type="button">خرید Pro</button>
+          <p id="buyNote" class="muted small">پرداخت از مسیر فعال پرداخت XAI انجام می‌شود.</p>
+        </section>
+      </section>
+    </main>
 
-    <section class="card compact">
-      <div class="section-head"><h2 id="accountTitle">حساب</h2><span id="plan">Free</span></div>
-      <div class="account-row"><span id="creditsLabel">اعتبار</span><strong id="credits">—</strong></div>
-      <button id="languageBtn" class="ghost full">English / हिन्दी / فارسی</button>
-    </section>
-  </main>
+    <nav class="tabs" aria-label="Navigation">
+      <button class="tab active" data-page="home" type="button"><span id="tabHome">خانه</span></button>
+      <button class="tab" data-page="repos" type="button"><span id="tabRepos">مخزن‌ها</span></button>
+      <button class="tab" data-page="subscription" type="button"><span id="tabSubscription">اشتراک</span></button>
+    </nav>
+  </div>
+
+  <div id="loading" class="state">در حال بارگذاری...</div>
+  <div id="error" class="state" hidden></div>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="/dashboard/app.js" defer></script>
 </body>
