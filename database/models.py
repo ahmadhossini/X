@@ -101,6 +101,7 @@ class Task(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     installation_id: Mapped[int] = mapped_column(BigInteger, index=True)
     repository: Mapped[str] = mapped_column(String(255), index=True)
+    task_type: Mapped[str] = mapped_column(String(32), default="code", nullable=False, index=True)
     request: Mapped[str] = mapped_column(Text)
     model: Mapped[str] = mapped_column(String(255), default="")
     status: Mapped[str] = mapped_column(String(32), default="queued", index=True)
