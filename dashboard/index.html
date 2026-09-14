@@ -17,57 +17,48 @@
           <span id="profileLogin">—</span>
         </div>
       </div>
-      <span id="connection" class="connection">—</span>
+      <span id="connection" class="connection-dot" aria-label="GitHub"></span>
     </header>
 
     <main>
       <section id="page-home" class="page active">
-        <div class="welcome">
-          <span id="homeEyebrow" class="eyebrow">XAI CODE AGENT</span>
-          <h1 id="homeTitle">دستیار کدنویسی برای GitHub</h1>
-          <p id="homeText">مخزن‌های متصل شما و وضعیت حساب در یک نگاه.</p>
+        <div class="home-top">
+          <h1 id="homeTitle">خانه</h1>
+          <span id="credits" class="credits-badge">—</span>
         </div>
         <section class="section">
-          <div class="section-title"><h2 id="homeReposTitle">مخزن‌های شما</h2><button id="homeReposButton" class="text-button" type="button">همه</button></div>
+          <div class="section-title"><h2 id="homeReposTitle">مخزن‌ها</h2><button id="homeReposButton" class="text-button" type="button">همه</button></div>
           <div id="homeRepos" class="list"></div>
-        </section>
-        <section class="quota">
-          <div><span id="quotaLabel">اعتبار باقی‌مانده</span><strong id="credits">—</strong></div>
-          <span id="plan" class="plan">Free</span>
         </section>
       </section>
 
       <section id="page-repos" class="page">
-        <div class="page-heading"><h1 id="reposTitle">مخزن‌ها</h1><button id="refresh" class="text-button" type="button">به‌روزرسانی</button></div>
-        <p id="reposText" class="muted">مخزن‌هایی که GitHub App به آن‌ها دسترسی دارد.</p>
+        <div class="page-heading"><h1 id="reposTitle">مخزن‌ها</h1><button id="refresh" class="icon-button" type="button" aria-label="Refresh">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.7-4L3 10m0 0V5m0 5h5M4 13a8 8 0 0 0 14.7 4L21 14m0 0v5m0-5h-5"/></svg>
+        </button></div>
         <div id="repos" class="list"></div>
       </section>
 
       <section id="page-subscription" class="page">
         <div class="page-heading"><h1 id="subscriptionTitle">اشتراک</h1></div>
-        <section class="plan-card">
-          <span id="currentLabel" class="muted">پلن فعلی</span>
-          <h2 id="currentPlan">Free</h2>
-          <div class="credit-line"><span id="subscriptionCreditsLabel">اعتبار</span><strong id="subscriptionCredits">—</strong></div>
-        </section>
-        <section class="pro-card">
-          <h2 id="proTitle">Pro</h2>
-          <p id="proText">اعتبار بیشتر برای اجرای وظایف کدنویسی.</p>
-          <ul id="proFeatures">
-            <li>100 اعتبار در ماه</li>
-            <li>دسترسی بدون محدودیت به قابلیت‌های اصلی Agent</li>
-            <li>اجرای وظایف از طریق Telegram Bot</li>
-          </ul>
+        <section class="subscription-card">
+          <div class="subscription-head"><span id="currentPlan">Free</span><span id="subscriptionCredits" class="credits-badge">—</span></div>
+          <div class="price"><span id="proTitle">Pro</span><strong id="proPrice">$7.99</strong><small id="proPeriod">/ ماه</small></div>
           <button id="buyButton" class="primary" type="button">خرید Pro</button>
-          <p id="buyNote" class="muted small">پرداخت از مسیر فعال پرداخت XAI انجام می‌شود.</p>
         </section>
       </section>
     </main>
 
     <nav class="tabs" aria-label="Navigation">
-      <button class="tab active" data-page="home" type="button"><span id="tabHome">خانه</span></button>
-      <button class="tab" data-page="repos" type="button"><span id="tabRepos">مخزن‌ها</span></button>
-      <button class="tab" data-page="subscription" type="button"><span id="tabSubscription">اشتراک</span></button>
+      <button class="tab active" data-page="home" type="button" aria-label="Home" title="Home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1V10Z"/></svg>
+      </button>
+      <button class="tab" data-page="repos" type="button" aria-label="Repositories" title="Repositories">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5Zm8 10a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-4Zm-8 0a2 2 0 0 1 2-2h4v8H6a2 2 0 0 1-2-2v-4Zm8-10h4a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-4V3Z"/></svg>
+      </button>
+      <button class="tab" data-page="subscription" type="button" aria-label="Subscription" title="Subscription">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M5 7h11a3 3 0 0 1 0 6H8a3 3 0 0 0 0 6h11"/></svg>
+      </button>
     </nav>
   </div>
 
