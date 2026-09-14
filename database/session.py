@@ -50,3 +50,8 @@ def init_db() -> None:
             payment_columns = {column["name"] for column in inspector.get_columns("payments")}
             if "amount_usd_cents" not in payment_columns:
                 connection.execute(text("ALTER TABLE payments ADD COLUMN amount_usd_cents INTEGER NULL"))
+
+        if "tasks" in tables:
+            task_columns = {column["name"] for column in inspector.get_columns("tasks")}
+            if "task_type" not in task_columns:
+                connection.execute(text("ALTER TABLE tasks ADD COLUMN task_type VARCHAR(32) NOT NULL DEFAULT 'code'"))
