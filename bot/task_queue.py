@@ -24,7 +24,9 @@ CLAIM_LEASE_SECONDS = 60 * 60
 HEARTBEAT_SECONDS = 30.0
 POLL_SECONDS = 1.0
 RECOVERY_CHECK_SECONDS = 60.0
-_ACTIVE_STATUSES = ("running", "planning", "branch_created", "committed", "pr_created", "changes_applied")
+_ACTIVE_STATUSES = (
+    "running", "planning", "branch_created", "changes_applied", "validating", "retrying", "committed", "pr_created"
+)
 
 
 def _now() -> datetime:
@@ -119,11 +121,11 @@ def _notify(task: Task, success: bool, result: dict | None = None) -> None:
         pr = result.get("pull_request") or {}
         pr_url = pr.get("url") or ""
         if lang == "fa":
-            text = f"تغییرات کد آماده شد.\nمخزن: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
+            text = f"تغییرات کد آماده شد.\nمخزن: {task.repository}\nنوع کار: {task.task_type}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
         elif lang == "hi":
-            text = f"Code changes तैयार हैं.\nRepository: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
+            text = f"Code changes तैयार हैं.\nRepository: {task.repository}\nTask type: {task.task_type}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
         else:
-            text = f"Code changes are ready.\nRepository: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
+            text = f"Code changes are ready.\nRepository: {task.repository}\nTask type: {task.task_type}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
         if pr_url:
             text += f"\nPR: {pr_url}"
     else:
@@ -158,6 +160,7 @@ def _execute_claimed(task: Task, worker_id: str) -> None:
             True,
             task.language,
             task.id,
+            task.task_type,
         )
         if result.get("status") == "no_changes":
             fail_task(task.id, settings.gemini_model, "no_changes", refund=True)
@@ -170,11 +173,21 @@ def _execute_claimed(task: Task, worker_id: str) -> None:
             raise AgentError("Agent did not return a branch")
         if not transition_task(task.id, "planning", "branch_created", branch=branch):
             raise AgentError("Task state changed while recording branch")
+
+        if not transition_task(task.id, "branch_created", "changes_applied"):
+            raise AgentError("Task state changed while recording changes")
+        if not transition_task(task.id, "changes_applied", "validating"):
+            raise AgentError("Task state changed while starting validation")
+
+        # Current validation is repository-side: the agent must return a real commit
+        # and the worker records it only after the branch/changes were successfully applied.
+        # Runtime test execution and CI remediation are the next execution layer.
         commit_sha = result.get("commit")
         if not commit_sha:
             raise AgentError("Agent did not return a commit")
-        if not transition_task(task.id, "branch_created", "committed", commit_sha=commit_sha):
+        if not transition_task(task.id, "validating", "committed", commit_sha=commit_sha):
             raise AgentError("Task state changed while recording commit")
+
         pr = result.get("pull_request") or {}
         pr_number = pr.get("number")
         if pr_number:
@@ -182,7 +195,7 @@ def _execute_claimed(task: Task, worker_id: str) -> None:
                 raise AgentError("Task state changed while recording pull request")
         complete_task(task.id, settings.gemini_model)
         _notify(task, True, result=result)
-        logger.info("Task completed task_id=%s repository=%s", task.id, task.repository)
+        logger.info("Task completed task_id=%s repository=%s type=%s", task.id, task.repository, task.task_type)
     except (AgentError, GitHubAppError, RuntimeError) as exc:
         logger.exception("Task failed task_id=%s repository=%s", task.id, task.repository)
         fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not side_effects_applied)
