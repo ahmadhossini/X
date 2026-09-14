@@ -10,22 +10,14 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from billing.service import BillingError, estimate_task_credits, reserve_task_credits
 from code_agent.github_app import GitHubAppError, github_app_get, github_app_get_installation
 from core.config import settings
-from database.models import GitHubInstallation, Task, User
+from database.models import GitHubInstallation, User
 from database.session import SessionLocal
 
 router = APIRouter(prefix="/api/miniapp", tags=["miniapp"])
-
 INIT_DATA_MAX_AGE_SECONDS = 24 * 60 * 60
 SUPPORTED_LANGUAGES = {"fa", "en", "hi"}
-
-
-class TaskRequest(BaseModel):
-    repository: str = Field(min_length=1, max_length=255)
-    request: str = Field(min_length=3, max_length=4000)
-    language: str | None = Field(default=None, max_length=8)
 
 
 class LanguageRequest(BaseModel):
@@ -116,12 +108,7 @@ async def me(
                 "type": account.get("type"),
             }
         except GitHubAppError:
-            profile = {
-                "login": installation.github_login,
-                "name": installation.github_login,
-                "avatar_url": None,
-                "html_url": None,
-            }
+            profile = {"login": installation.github_login, "name": installation.github_login, "avatar_url": None, "html_url": None}
 
     return {
         "telegram_id": current.telegram_id,
@@ -181,59 +168,3 @@ async def repos(
             "html_url": repo.get("html_url"),
         })
     return {"repositories": repositories[:100]}
-
-
-@router.post("/task")
-def task(
-    payload: TaskRequest,
-    authorization: str | None = Header(default=None),
-    x_telegram_init_data: str | None = Header(default=None),
-) -> dict:
-    user = _auth_user(_init_data(authorization, x_telegram_init_data))
-    language = payload.language or user.language
-    if language not in SUPPORTED_LANGUAGES:
-        language = "en"
-    credits = estimate_task_credits(payload.request)
-    try:
-        reservation = reserve_task_credits(
-            user.telegram_id,
-            payload.repository.strip(),
-            payload.request.strip(),
-            credits,
-            model=settings.gemini_model,
-            chat_id=user.telegram_id,
-            language=language,
-        )
-    except BillingError as exc:
-        status = 409 if str(exc) in {"Active task already exists", "GitHub not connected"} else 402
-        raise HTTPException(status_code=status, detail=str(exc))
-    return {
-        "task_id": reservation.task_id,
-        "status": "queued",
-        "credits_reserved": reservation.credits,
-        "credits_remaining": reservation.remaining,
-    }
-
-
-@router.get("/task/{task_id}")
-def task_status(
-    task_id: str,
-    authorization: str | None = Header(default=None),
-    x_telegram_init_data: str | None = Header(default=None),
-) -> dict:
-    user = _auth_user(_init_data(authorization, x_telegram_init_data))
-    with SessionLocal() as db:
-        task = db.scalar(select(Task).where(Task.id == task_id, Task.user_id == user.id))
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {
-        "task_id": task.id,
-        "status": task.status,
-        "repository": task.repository,
-        "branch": task.branch,
-        "commit": task.commit_sha,
-        "pull_request_number": task.pull_request_number,
-        "error": task.error if task.status == "failed" else None,
-        "created_at": task.created_at,
-        "completed_at": task.completed_at,
-    }
