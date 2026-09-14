@@ -10,11 +10,6 @@ from database.models import GitHubInstallation, Task, UsageRecord, User
 from database.session import SessionLocal
 
 FREE_DAILY_CREDITS = 0
-PLAN_LIMITS = {
-    "free": 0,
-    "pro_monthly": 100,
-    "pro_quarterly": 350,
-}
 
 ACTIVE_TASK_STATUSES = (
     "queued",
@@ -198,7 +193,8 @@ def complete_task(task_id: str, model: str, credits_used: int | None = None) -> 
                 return
             raise BillingError("Usage record is not reservable")
         usage.model = model[:255]
-        usage.credits_used = usage.credits_reserved if credits_used is None else max(0, credits_used)
+        requested = usage.credits_reserved if credits_used is None else max(0, credits_used)
+        usage.credits_used = min(requested, usage.credits_reserved)
         usage.status = "completed"
         if task.status not in {"completed", "failed", "cancelled"}:
             task.status = "completed"
