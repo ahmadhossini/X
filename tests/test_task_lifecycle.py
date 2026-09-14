@@ -23,10 +23,14 @@ def db(monkeypatch):
     monkeypatch.setattr(task_queue, "SessionLocal", Session)
 
     with Session() as session:
-        # Use a paid-plan fixture so the lifecycle tests can control the
-        # starting balance directly. Free users intentionally reset to their
-        # daily allowance before a reservation.
-        user = User(telegram_id=12345, language="fa", plan="pro", credits=20)
+        user = User(
+            telegram_id=12345,
+            language="fa",
+            plan="pro",
+            credits=20,
+            subscription_credits=20,
+            topup_credits=0,
+        )
         session.add(user)
         session.flush()
         installation = GitHubInstallation(
@@ -103,6 +107,8 @@ def test_second_active_task_is_rejected_without_changing_balance(db):
 def test_insufficient_credits_creates_no_task_or_usage(db):
     with db() as session:
         user = session.scalar(select(User).where(User.telegram_id == 12345))
+        user.subscription_credits = 2
+        user.topup_credits = 0
         user.credits = 2
         session.commit()
 
@@ -176,7 +182,6 @@ def test_transition_complete_and_fail_are_state_safe_and_idempotent(db):
         assert usage.credits_used == 4
         assert user.credits == 15
 
-    # A failed cleanup after successful completion must not refund credits.
     billing.fail_task(reservation.task_id, "gemini-test", "late_worker_error")
     with db() as session:
         user = session.scalar(select(User).where(User.telegram_id == 12345))
