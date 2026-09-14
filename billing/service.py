@@ -37,16 +37,24 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _sync_total_credits(user: User) -> None:
+    user.subscription_credits = max(0, user.subscription_credits)
+    user.topup_credits = max(0, user.topup_credits)
+    user.credits = user.subscription_credits + user.topup_credits
+
+
 def _sync_plan_state(user: User, now: datetime) -> None:
     if user.plan != "free":
         if user.credits_reset_at is not None and user.credits_reset_at <= now:
             user.plan = "free"
-            user.credits = FREE_DAILY_CREDITS
+            user.subscription_credits = FREE_DAILY_CREDITS
             user.credits_reset_at = now + timedelta(days=1)
+        _sync_total_credits(user)
         return
     if user.credits_reset_at is None or user.credits_reset_at <= now:
-        user.credits = FREE_DAILY_CREDITS
+        user.subscription_credits = FREE_DAILY_CREDITS
         user.credits_reset_at = now + timedelta(days=1)
+    _sync_total_credits(user)
 
 
 def ensure_user_credit_state(telegram_id: int) -> tuple[int, str]:
@@ -125,7 +133,13 @@ def reserve_task_credits(
             db.rollback()
             raise BillingError("Insufficient credits")
 
-        user.credits -= credits
+        # Consume expiring subscription credits first, then non-expiring top-ups.
+        subscription_reserved = min(user.subscription_credits, credits)
+        topup_reserved = credits - subscription_reserved
+        user.subscription_credits -= subscription_reserved
+        user.topup_credits -= topup_reserved
+        _sync_total_credits(user)
+
         task_id = uuid4().hex
         task = Task(
             id=task_id,
@@ -146,6 +160,8 @@ def reserve_task_credits(
             model=model[:255],
             credits_reserved=credits,
             credits_used=0,
+            subscription_credits_reserved=subscription_reserved,
+            topup_credits_reserved=topup_reserved,
             status="reserved",
         )
         db.add(task)
@@ -211,7 +227,9 @@ def fail_task(task_id: str, model: str, reason: str = "failed", *, refund: bool 
         user = db.get(User, usage.user_id, with_for_update=True)
         task = db.scalar(select(Task).where(Task.id == task_id).with_for_update())
         if refund and user:
-            user.credits += usage.credits_reserved
+            user.subscription_credits += usage.subscription_credits_reserved
+            user.topup_credits += usage.topup_credits_reserved
+            _sync_total_credits(user)
         usage.model = model[:255]
         usage.credits_used = 0 if refund else usage.credits_reserved
         usage.status = reason[:32]
