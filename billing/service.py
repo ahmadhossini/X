@@ -9,12 +9,11 @@ from sqlalchemy import select
 from database.models import GitHubInstallation, Task, UsageRecord, User
 from database.session import SessionLocal
 
-FREE_DAILY_CREDITS = 5
-
+FREE_DAILY_CREDITS = 0
 PLAN_LIMITS = {
-    "free": FREE_DAILY_CREDITS,
-    "pro": 500,
-    "pro_plus": 2000,
+    "free": 0,
+    "pro_monthly": 100,
+    "pro_quarterly": 350,
 }
 
 ACTIVE_TASK_STATUSES = (
@@ -43,8 +42,12 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _daily_reset_if_needed(user: User, now: datetime) -> None:
+def _sync_plan_state(user: User, now: datetime) -> None:
     if user.plan != "free":
+        if user.credits_reset_at is not None and user.credits_reset_at <= now:
+            user.plan = "free"
+            user.credits = FREE_DAILY_CREDITS
+            user.credits_reset_at = now + timedelta(days=1)
         return
     if user.credits_reset_at is None or user.credits_reset_at <= now:
         user.credits = FREE_DAILY_CREDITS
@@ -57,13 +60,12 @@ def ensure_user_credit_state(telegram_id: int) -> tuple[int, str]:
         if not user:
             raise BillingError("User not found")
         now = _now()
-        _daily_reset_if_needed(user, now)
+        _sync_plan_state(user, now)
         db.commit()
         return user.credits, user.plan
 
 
 def estimate_task_credits(request: str) -> int:
-    """Estimate conservatively because /task can modify repository files."""
     text = request.lower()
     heavy_terms = (
         "bug", "debug", "error", "exception", "failing", "broken", "crash",
@@ -123,7 +125,7 @@ def reserve_task_credits(
             raise BillingError("GitHub not connected")
 
         now = _now()
-        _daily_reset_if_needed(user, now)
+        _sync_plan_state(user, now)
         if user.credits < credits:
             db.rollback()
             raise BillingError("Insufficient credits")
@@ -206,12 +208,6 @@ def complete_task(task_id: str, model: str, credits_used: int | None = None) -> 
 
 
 def fail_task(task_id: str, model: str, reason: str = "failed", *, refund: bool = True) -> None:
-    """Fail a task and optionally refund its reservation.
-
-    A refund is safe only when the task produced no external side effect. Once
-    a GitHub commit/branch/PR exists, the reservation must remain consumed even
-    if recording the later state in the database fails.
-    """
     with SessionLocal() as db:
         usage = db.scalar(select(UsageRecord).where(UsageRecord.task_id == task_id).with_for_update())
         if not usage or usage.status != "reserved":
