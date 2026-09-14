@@ -19,6 +19,7 @@ from database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
 SUPPORTED_LANGUAGES = {"en", "hi", "fa"}
+_PENDING_TASKS: dict[int, tuple[str, list[str]]] = {}
 
 
 def _run_async(func, *args):
@@ -111,6 +112,16 @@ def _main_keyboard(language: str) -> types.InlineKeyboardMarkup:
     return markup
 
 
+def _repo_selection_markup(repositories: list[str]) -> types.InlineKeyboardMarkup:
+    markup = types.InlineKeyboardMarkup(row_width=1)
+    for index, repository in enumerate(repositories[:20]):
+        label = repository.split("/", 1)[-1]
+        if len(label) > 45:
+            label = label[:42] + "..."
+        markup.add(types.InlineKeyboardButton(label, callback_data=f"taskrepo:{index}"))
+    return markup
+
+
 def _set_user_commands(bot: TeleBot, user_id: int, language: str) -> None:
     descriptions = {
         "en": {"start": "Start XAI Code Agent", "connect": "Connect GitHub", "repos": "List repositories", "task": "Create a code change", "balance": "Show credits and plan", "language": "Change language", "disconnect": "Disconnect GitHub", "help": "Show help"},
@@ -119,6 +130,25 @@ def _set_user_commands(bot: TeleBot, user_id: int, language: str) -> None:
     }
     d = descriptions.get(language, descriptions["en"])
     bot.set_my_commands([types.BotCommand(command, description) for command, description in d.items()], scope=types.BotCommandScopeChat(user_id))
+
+
+def _queue_task(user_id: int, repository: str, request: str, installation: GitHubInstallation, chat_id: int, language: str, bot: TeleBot) -> None:
+    estimated_credits = estimate_task_credits(request)
+    try:
+        reservation = reserve_task_credits(user_id, repository, request, estimated_credits, installation_id=installation.installation_id, model=settings.gemini_model, chat_id=chat_id, language=language)
+    except BillingError as exc:
+        if str(exc) == "Insufficient credits":
+            try:
+                credits, plan = ensure_user_credit_state(user_id)
+            except BillingError:
+                credits, plan = 0, "free"
+            bot.send_message(chat_id, t(language, "insufficient_credits", credits=credits, required=estimated_credits, plan=plan), reply_markup=_main_keyboard(language))
+        elif str(exc) == "Active task already exists":
+            bot.send_message(chat_id, t(language, "task_already_running"), reply_markup=_main_keyboard(language))
+        else:
+            bot.send_message(chat_id, t(language, "billing_error"), reply_markup=_main_keyboard(language))
+        return
+    bot.send_message(chat_id, t(language, "task_received_with_cost", credits=estimated_credits, remaining=reservation.remaining), reply_markup=_main_keyboard(language))
 
 
 def build_bot() -> TeleBot:
@@ -189,6 +219,32 @@ def build_bot() -> TeleBot:
             bot.send_message(call.message.chat.id, t(language, "chat_prompt"), reply_markup=_main_keyboard(language), parse_mode="HTML")
         elif action == "support":
             bot.send_message(call.message.chat.id, t(language, "support_text"), reply_markup=_main_keyboard(language), parse_mode="HTML")
+
+    @bot.callback_query_handler(func=lambda call: bool(call.data and call.data.startswith("taskrepo:")))
+    def task_repository_callback(call: CallbackQuery) -> None:
+        if not call.from_user or not call.message or not call.data:
+            return
+        user_id = call.from_user.id
+        language = _language(user_id)
+        pending = _PENDING_TASKS.get(user_id)
+        if not pending:
+            bot.answer_callback_query(call.id, t(language, "task_format"), show_alert=True)
+            return
+        try:
+            index = int(call.data.split(":", 1)[1])
+            request, repositories = pending
+            repository = repositories[index]
+        except (ValueError, IndexError):
+            bot.answer_callback_query(call.id, "Invalid repository", show_alert=True)
+            return
+        _PENDING_TASKS.pop(user_id, None)
+        installation = _installation(user_id)
+        if not installation:
+            bot.answer_callback_query(call.id, t(language, "connect_first"), show_alert=True)
+            return
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, f"Repository: {repository}\n\n{t(language, 'task_received')}", parse_mode="HTML")
+        _queue_task(user_id, repository, request, installation, call.message.chat.id, language, bot)
 
     @bot.callback_query_handler(func=lambda call: bool(call.data and call.data.startswith("lang:")))
     def language_callback(call: CallbackQuery) -> None:
@@ -279,26 +335,14 @@ def build_bot() -> TeleBot:
             logger.exception("Failed to resolve repository for task")
             bot.reply_to(message, t(language, "github_error"), reply_markup=_main_keyboard(language))
             return
-        if len(repositories) != 1:
-            bot.reply_to(message, t(language, "task_choose_repo", count=len(repositories)), reply_markup=_main_keyboard(language))
+        if not repositories:
+            bot.reply_to(message, t(language, "repos_empty"), reply_markup=_main_keyboard(language))
             return
-        repository = repositories[0]
-        estimated_credits = estimate_task_credits(request)
-        try:
-            reservation = reserve_task_credits(user_id, repository, request, estimated_credits, installation_id=installation.installation_id, model=settings.gemini_model, chat_id=message.chat.id, language=language)
-        except BillingError as exc:
-            if str(exc) == "Insufficient credits":
-                try:
-                    credits, plan = ensure_user_credit_state(user_id)
-                except BillingError:
-                    credits, plan = 0, "free"
-                bot.reply_to(message, t(language, "insufficient_credits", credits=credits, required=estimated_credits, plan=plan), reply_markup=_main_keyboard(language))
-            elif str(exc) == "Active task already exists":
-                bot.reply_to(message, t(language, "task_already_running"), reply_markup=_main_keyboard(language))
-            else:
-                bot.reply_to(message, t(language, "billing_error"), reply_markup=_main_keyboard(language))
+        if len(repositories) > 1:
+            _PENDING_TASKS[user_id] = (request, repositories)
+            bot.reply_to(message, t(language, "task_choose_repo", count=len(repositories)), reply_markup=_repo_selection_markup(repositories), parse_mode="HTML")
             return
-        bot.reply_to(message, t(language, "task_received_with_cost", credits=estimated_credits, remaining=reservation.remaining), reply_markup=_main_keyboard(language))
+        _queue_task(user_id, repositories[0], request, installation, message.chat.id, language, bot)
 
     @bot.message_handler(func=lambda message: bool(message.text))
     def text_handler(message: Message) -> None:
