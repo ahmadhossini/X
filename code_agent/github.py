@@ -187,6 +187,27 @@ class GitHubRepo:
                 return item
         return None
 
+    async def workflow_runs_for_commit(self, commit_sha: str) -> list[dict[str, Any]]:
+        """Return GitHub Actions runs for a commit, newest first."""
+        await self._authorize_repository()
+        data = await self._request("GET", f"/actions/runs?head_sha={quote(commit_sha, safe='')}&per_page=20")
+        if not isinstance(data, dict):
+            raise GitHubRepoError("Invalid GitHub Actions workflow response")
+        runs = data.get("workflow_runs")
+        if not isinstance(runs, list):
+            raise GitHubRepoError("Invalid GitHub Actions workflow response")
+        return [run for run in runs if isinstance(run, dict)]
+
+    async def workflow_run_jobs(self, run_id: int) -> list[dict[str, Any]]:
+        await self._authorize_repository()
+        data = await self._request("GET", f"/actions/runs/{int(run_id)}/jobs?per_page=100")
+        if not isinstance(data, dict):
+            raise GitHubRepoError("Invalid GitHub Actions jobs response")
+        jobs = data.get("jobs")
+        if not isinstance(jobs, list):
+            raise GitHubRepoError("Invalid GitHub Actions jobs response")
+        return [job for job in jobs if isinstance(job, dict)]
+
     async def create_branch(self, name: str, base: str) -> None:
         await self._authorize_repository()
         source = await self.commit(base)
