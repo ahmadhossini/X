@@ -21,10 +21,19 @@
   }
   function repoElement(repo){
     const item=document.createElement('button'); item.type='button'; item.className='repo';
-    const icon=document.createElement('span'); icon.className='repo-icon'; icon.textContent=(repo.name||repo.full_name||'R').slice(0,1).toUpperCase();
-    const body=document.createElement('span'); body.className='repo-body'; const title=document.createElement('strong'); title.textContent=repo.name||repo.full_name;
-    const meta=document.createElement('span'); const c=copy[lang]||copy.fa; meta.textContent=`${repo.owner||repo.full_name?.split('/')[0]||''} · ${repo.private?c.private:c.public}`;
-    body.append(title,meta); item.append(icon,body); item.addEventListener('click',()=>{if(repo.html_url&&tg?.openLink)tg.openLink(repo.html_url);else if(repo.html_url)window.location.href=repo.html_url;}); return item;
+    const icon=document.createElement('span'); icon.className='repo-icon'; icon.setAttribute('aria-hidden','true');
+    icon.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.18-3.37-1.18-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.35 1.09 2.92.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.56 9.56 0 0 1 12 7.01c.85 0 1.71.12 2.51.35 1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.67.92.67 1.86v2.76c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>';
+    const body=document.createElement('span'); body.className='repo-body';
+    const title=document.createElement('strong'); title.textContent=repo.name||repo.full_name;
+    const owner=document.createElement('span'); owner.className='repo-owner'; owner.textContent=repo.owner||repo.full_name?.split('/')[0]||'';
+    const meta=document.createElement('span'); meta.className='repo-meta'; const c=copy[lang]||copy.fa;
+    const visibility=document.createElement('span'); visibility.className=`repo-visibility ${repo.private?'is-private':'is-public'}`; visibility.textContent=repo.private?c.private:c.public;
+    const branch=document.createElement('span'); branch.textContent=repo.default_branch||'main';
+    meta.append(visibility,branch); body.append(title,owner,meta);
+    const arrow=document.createElement('span'); arrow.className='repo-arrow'; arrow.innerHTML='<svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>';
+    item.append(icon,body,arrow);
+    item.addEventListener('click',()=>{if(repo.html_url&&tg?.openLink)tg.openLink(repo.html_url);else if(repo.html_url)window.location.href=repo.html_url;});
+    return item;
   }
   function showRepos(items){repositories=items||[];[$('repos'),$('homeRepos')].forEach(box=>{box.innerHTML='';if(!repositories.length){const empty=document.createElement('div');empty.className='empty';empty.textContent='—';box.appendChild(empty);return;}repositories.slice(0,box.id==='homeRepos'?5:100).forEach(repo=>box.appendChild(repoElement(repo)));});}
   function openPage(page){document.querySelectorAll('.page').forEach(el=>el.classList.toggle('active',el.id===`page-${page}`));document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('active',el.dataset.page===page));if(tg?.HapticFeedback)tg.HapticFeedback.selectionChanged();}
