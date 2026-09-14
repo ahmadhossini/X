@@ -22,6 +22,8 @@ ACTIVE_TASK_STATUSES = (
     "running",
     "planning",
     "branch_created",
+    "validating",
+    "retrying",
     "committed",
     "pr_created",
     "changes_applied",
@@ -35,6 +37,12 @@ class BillingError(RuntimeError):
 @dataclass(frozen=True)
 class CreditReservation:
     task_id: str
+    credits: int
+    remaining: int
+
+
+@dataclass(frozen=True)
+class AdviceCreditReservation:
     credits: int
     remaining: int
 
@@ -60,6 +68,40 @@ def ensure_user_credit_state(telegram_id: int) -> tuple[int, str]:
         _daily_reset_if_needed(user, now)
         db.commit()
         return user.credits, user.plan
+
+
+def reserve_advice_credit(telegram_id: int) -> AdviceCreditReservation:
+    """Reserve one credit from the same pool used by coding tasks.
+
+    Coding Advice is intentionally part of the product-wide credit system now;
+    it no longer has a separate 10/day counter or usage table.
+    """
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
+        if not user:
+            raise BillingError("User not found")
+
+        now = _now()
+        _daily_reset_if_needed(user, now)
+        if user.credits < 1:
+            db.rollback()
+            raise BillingError("Insufficient credits")
+
+        user.credits -= 1
+        db.commit()
+        return AdviceCreditReservation(credits=1, remaining=user.credits)
+
+
+def refund_advice_credit(telegram_id: int) -> None:
+    """Return an advice credit when generation fails before a usable reply."""
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
+        if not user:
+            return
+        user.credits += 1
+        if user.plan == "free" and user.credits > FREE_DAILY_CREDITS:
+            user.credits = FREE_DAILY_CREDITS
+        db.commit()
 
 
 def estimate_task_credits(request: str) -> int:
