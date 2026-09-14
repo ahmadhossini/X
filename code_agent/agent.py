@@ -146,28 +146,56 @@ CONTEXT:
 
 
 async def reconcile_task(repo: GitHubRepo, base: str, request: str, task_id: str) -> dict[str, Any] | None:
+    """Recover the latest agent branch state after a worker crash or restart."""
     marker = f"XAI-TASK:{task_id}"
     branch = _branch_name(request, task_id)
-    branch_head: dict[str, Any] | None = None
     try:
         branch_head = await repo.commit(branch)
     except GitHubRepoError:
         branch_head = None
+
+    # Prefer the deterministic task branch. A retry commit contains the same
+    # task marker, so recovering the branch head is safe even after several
+    # validation-repair commits.
+    if branch_head is not None:
+        head_sha = str(branch_head.get("sha") or "")
+        head_message = str(((branch_head.get("commit") or {}).get("message") or ""))
+        if marker in head_message:
+            return {
+                "status": "committed",
+                "summary": "Recovered existing task branch.",
+                "changes": [],
+                "commit": head_sha,
+                "branch": branch,
+            }
+
+        # The branch may have been advanced by a retry commit whose message
+        # includes the marker. Walk recent branch commits to find that marker.
+        try:
+            commits = await repo.branch_commits(branch, limit=20)
+        except GitHubRepoError:
+            commits = []
+        for commit in commits:
+            message = str(((commit.get("commit") or {}).get("message") or ""))
+            if marker in message:
+                sha = str(commit.get("sha") or "")
+                if sha:
+                    return {
+                        "status": "committed",
+                        "summary": "Recovered existing task branch.",
+                        "changes": [],
+                        "commit": head_sha,
+                        "branch": branch,
+                    }
+        return None
+
+    # Branch creation itself may have succeeded before a worker crash. If a
+    # task commit exists remotely, recreate/repair the branch from that commit.
     marker_commit = await repo.find_task_commit(marker)
     if marker_commit is None:
         return None
     marker_sha = str(marker_commit.get("sha") or "")
     if not marker_sha:
-        return None
-    if branch_head is not None:
-        head_sha = str(branch_head.get("sha") or "")
-        if head_sha == marker_sha:
-            return {"status": "committed", "summary": "Recovered existing task commit.", "changes": [], "commit": marker_sha, "branch": branch}
-        parents = marker_commit.get("parents")
-        parent_sha = parents[0].get("sha") if isinstance(parents, list) and parents and isinstance(parents[0], dict) else None
-        if parent_sha == head_sha:
-            await repo.update_branch(branch, marker_sha)
-            return {"status": "committed", "summary": "Recovered existing task commit.", "changes": [], "commit": marker_sha, "branch": branch}
         return None
     marker_details = await repo.commit(marker_sha)
     parents = marker_details.get("parents")
