@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from billing.plans import Plan, get_plan
+from billing.service import _sync_plan_state
 from database.models import Payment, Subscription, User
 from database.session import SessionLocal
 
@@ -80,6 +81,11 @@ def activate_paid_plan(
             return False
 
         now = _now()
+        # Expire an old subscription before granting a new one. This prevents
+        # already-expired subscription credits from being carried into the new
+        # billing period while preserving non-expiring top-up credits.
+        _sync_plan_state(user, now)
+
         active_sub = db.scalar(
             select(Subscription)
             .where(
@@ -150,6 +156,7 @@ def activate_topup(
             return False
 
         now = _now()
+        _sync_plan_state(user, now)
         user.topup_credits += plan.credits
         _sync_total_credits(user)
         _record_payment(
