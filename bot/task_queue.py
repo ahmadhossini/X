@@ -122,8 +122,9 @@ def _validate_commit(repository: str, installation_id: int, commit_sha: str) -> 
                     run_id = run.get("id")
                     if not isinstance(run_id, int):
                         continue
-                    if run.get("event") in {"pull_request", "push"} or run.get("name") == "XAI Agent Validation":
-                        relevant.append(run)
+                    if run.get("name") != "XAI Agent Validation":
+                        continue
+                    relevant.append(run)
                 if relevant:
                     latest = relevant[0]
                     status = str(latest.get("status") or "")
