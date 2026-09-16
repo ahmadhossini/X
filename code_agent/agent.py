@@ -266,14 +266,35 @@ async def repair_task(
             f"Original user request: {request}\n\n"
             f"Validation attempt {attempt} failed. Fix the implementation so the repository passes validation.\n"
             f"Validation failure:\n{validation_failure[:12000]}\n\n"
-            "Inspect the current branch context and make the smallest safe fix. Do not change CI workflow files, secrets, credentials, or private keys."
+            "Inspect the current branch context and make the smallest safe fix. "
+            "Do not change CI workflow files, secrets, credentials, or private keys."
         )
-        plan = await plan_changes(api_key, model, repair_request, context, language)
+        plan = await plan_changes(
+            api_key,
+            model,
+            repair_request,
+            context,
+            language,
+        )
         if not plan["changes"]:
             raise AgentError("Agent could not produce a repair for the validation failure")
+
         marker = f"XAI-TASK:{task_id}" if task_id else "XAI-REPAIR"
         message = f"fix(agent): validation retry {attempt} [{marker} RETRY:{attempt}]"
-        sha = await repo.apply_changes(branch, plan["changes"], message)
-        return {"status": "committed", "summary": plan["summary"], "changes": [c["path"] for c in plan["changes"]], "commit": sha, "branch": branch}
+
+        sha = await repo.apply_changes(
+            branch,
+            plan["changes"],
+            message,
+            idempotency_marker=f"{marker}:RETRY:{attempt}",
+        )
+
+        return {
+            "status": "committed",
+            "summary": plan["summary"],
+            "changes": [c["path"] for c in plan["changes"]],
+            "commit": sha,
+            "branch": branch,
+        }
     finally:
         await repo.aclose()
