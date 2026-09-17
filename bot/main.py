@@ -151,6 +151,24 @@ def _queue_task(user_id: int, repository: str, request: str, installation: GitHu
     bot.send_message(chat_id, t(language, "task_received_with_cost", credits=estimated_credits, remaining=reservation.remaining), reply_markup=_main_keyboard(language))
 
 
+def _send_repositories(bot: TeleBot, user_id: int, chat_id: int, language: str) -> None:
+    installation = _installation(user_id)
+    if not installation:
+        bot.send_message(chat_id, t(language, "connect_first"), reply_markup=_connect_markup(user_id, language))
+        return
+    try:
+        data = _run_async(github_app_get, "/installation/repositories?per_page=100", installation.installation_id)
+        repos = data.get("repositories", [])
+        if not repos:
+            bot.send_message(chat_id, t(language, "repos_empty"), reply_markup=_main_keyboard(language))
+            return
+        lines = [f"· {repo.get('full_name')}" for repo in repos[:50] if repo.get("full_name")]
+        bot.send_message(chat_id, t(language, "repos_title") + "\n\n" + "\n".join(lines), reply_markup=_main_keyboard(language))
+    except Exception:
+        logger.exception("Failed to list repositories")
+        bot.send_message(chat_id, t(language, "github_error"), reply_markup=_main_keyboard(language))
+
+
 def build_bot() -> TeleBot:
     token = os.getenv("BOT_TOKEN", "")
     if not token:
@@ -171,10 +189,11 @@ def build_bot() -> TeleBot:
         if len(payload) > 1 and payload[1] == "connect_github":
             bot.reply_to(message, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language), parse_mode="HTML")
             return
-        if len(payload) > 1 and payload[1] == "github_connected" and _installation(user_id):
+        if len(payload) > 1 and payload[1] == "github_connected":
             installation = _installation(user_id)
-            bot.reply_to(message, t(language, "github_connected", login=installation.github_login or "GitHub"), reply_markup=_main_keyboard(language), parse_mode="HTML")
-            return
+            if installation:
+                bot.reply_to(message, t(language, "github_connected", login=installation.github_login or "GitHub"), reply_markup=_main_keyboard(language), parse_mode="HTML")
+                return
         bot.reply_to(message, t(language, "welcome"), reply_markup=_main_keyboard(language), parse_mode="HTML")
 
     @bot.message_handler(commands=["help"])
@@ -206,19 +225,21 @@ def build_bot() -> TeleBot:
     def menu_callback(call: CallbackQuery) -> None:
         if not call.from_user or not call.message or not call.data:
             return
-        language = _language(call.from_user.id)
+        user_id = call.from_user.id
+        chat_id = call.message.chat.id
+        language = _language(user_id)
         action = call.data.split(":", 1)[1]
         bot.answer_callback_query(call.id)
         if action == "connect":
-            connect_command(call.message)
+            bot.send_message(chat_id, t(language, "connect_button_hint"), reply_markup=_connect_markup(user_id, language), parse_mode="HTML")
         elif action == "repos":
-            repositories(call.message)
+            _send_repositories(bot, user_id, chat_id, language)
         elif action == "task":
-            bot.send_message(call.message.chat.id, t(language, "task_format"), reply_markup=_main_keyboard(language), parse_mode="HTML")
+            bot.send_message(chat_id, t(language, "task_format"), reply_markup=_main_keyboard(language), parse_mode="HTML")
         elif action == "advice":
-            bot.send_message(call.message.chat.id, t(language, "chat_prompt"), reply_markup=_main_keyboard(language), parse_mode="HTML")
+            bot.send_message(chat_id, t(language, "chat_prompt"), reply_markup=_main_keyboard(language), parse_mode="HTML")
         elif action == "support":
-            bot.send_message(call.message.chat.id, t(language, "support_text"), reply_markup=_main_keyboard(language), parse_mode="HTML")
+            bot.send_message(chat_id, t(language, "support_text"), reply_markup=_main_keyboard(language), parse_mode="HTML")
 
     @bot.callback_query_handler(func=lambda call: bool(call.data and call.data.startswith("taskrepo:")))
     def task_repository_callback(call: CallbackQuery) -> None:
@@ -235,7 +256,7 @@ def build_bot() -> TeleBot:
             request, repositories = pending
             repository = repositories[index]
         except (ValueError, IndexError):
-            bot.answer_callback_query(call.id, "Invalid repository", show_alert=True)
+            bot.answer_callback_query(call.id, t(language, "github_error"), show_alert=True)
             return
         _PENDING_TASKS.pop(user_id, None)
         installation = _installation(user_id)
@@ -252,7 +273,7 @@ def build_bot() -> TeleBot:
             return
         language = call.data.split(":", 1)[1]
         if language not in SUPPORTED_LANGUAGES:
-            bot.answer_callback_query(call.id, "Invalid language")
+            bot.answer_callback_query(call.id, t("en", "github_error"))
             return
         try:
             _set_language(call.from_user.id, language)
@@ -262,7 +283,7 @@ def build_bot() -> TeleBot:
                 bot.send_message(call.message.chat.id, t(language, "welcome"), reply_markup=_main_keyboard(language), parse_mode="HTML")
         except Exception:
             logger.exception("Language selection failed")
-            bot.answer_callback_query(call.id, "Language selection failed. Please try again.", show_alert=True)
+            bot.answer_callback_query(call.id, t(language, "github_error"), show_alert=True)
 
     @bot.callback_query_handler(func=lambda call: bool(call.data == "github:config_error"))
     def github_config_error(call: CallbackQuery) -> None:
@@ -298,21 +319,7 @@ def build_bot() -> TeleBot:
             return
         user_id = message.from_user.id
         language = _language(user_id)
-        installation = _installation(user_id)
-        if not installation:
-            bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(user_id, language))
-            return
-        try:
-            data = _run_async(github_app_get, "/installation/repositories?per_page=100", installation.installation_id)
-            repos = data.get("repositories", [])
-            if not repos:
-                bot.reply_to(message, t(language, "repos_empty"), reply_markup=_main_keyboard(language))
-                return
-            lines = [f"· {repo.get('full_name')}" for repo in repos[:50] if repo.get("full_name")]
-            bot.reply_to(message, t(language, "repos_title") + "\n\n" + "\n".join(lines), reply_markup=_main_keyboard(language))
-        except Exception:
-            logger.exception("Failed to list repositories")
-            bot.reply_to(message, t(language, "github_error"), reply_markup=_main_keyboard(language))
+        _send_repositories(bot, user_id, message.chat.id, language)
 
     @bot.message_handler(commands=["task"])
     def task(message: Message) -> None:
