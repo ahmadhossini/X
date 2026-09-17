@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import os
-
 from dataclasses import dataclass
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,6 +15,19 @@ def _positive_int(name: str, default: int, minimum: int, maximum: int) -> int:
     except ValueError:
         return default
     return max(minimum, min(value, maximum))
+
+
+def _csv_ints(*names: str) -> tuple[int, ...]:
+    for name in names:
+        raw = os.getenv(name, "")
+        values = tuple(
+            int(value.strip())
+            for value in raw.split(",")
+            if value.strip().lstrip("-").isdigit()
+        )
+        if values:
+            return values
+    return ()
 
 
 @dataclass(frozen=True)
@@ -30,11 +43,7 @@ class Settings:
     github_connect_secret: str = os.getenv("GITHUB_CONNECT_SECRET", "")
     public_base_url: str = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
     code_agent_api_key: str = os.getenv("CODE_AGENT_API_KEY", "")
-    telegram_admin_ids: tuple[int, ...] = tuple(
-        int(value.strip())
-        for value in os.getenv("TELEGRAM_ADMIN_IDS", "").split(",")
-        if value.strip().lstrip("-").isdigit()
-    )
+    telegram_admin_ids: tuple[int, ...] = _csv_ints("TELEGRAM_ADMIN_IDS", "ADMIN_IDS")
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./xai_master.db")
     code_agent_workers: int = _positive_int("CODE_AGENT_WORKERS", 20, 2, 100)
     code_agent_queue_size: int = _positive_int("CODE_AGENT_QUEUE_SIZE", 1000, 50, 10000)

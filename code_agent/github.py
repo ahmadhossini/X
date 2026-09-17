@@ -33,7 +33,10 @@ class GitHubRepo:
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0), limits=httpx.Limits(max_connections=100, max_keepalive_connections=30))
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(45.0, connect=10.0),
+                limits=httpx.Limits(max_connections=100, max_keepalive_connections=30),
+            )
         return self._client
 
     async def aclose(self) -> None:
@@ -58,7 +61,11 @@ class GitHubRepo:
                 token = await installation_token(self.installation_id, force_refresh=token_attempt == 1)
             except GitHubAppError as exc:
                 raise GitHubRepoError(str(exc)) from exc
-            headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "Authorization": f"Bearer {token}"}
+            headers = {
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "Authorization": f"Bearer {token}",
+            }
             url = f"https://api.github.com/repos/{self.full_name}{path}"
             client = await self._get_client()
             for attempt in range(4):
@@ -94,7 +101,11 @@ class GitHubRepo:
                 token = await installation_token(self.installation_id, force_refresh=token_attempt == 1)
             except GitHubAppError as exc:
                 raise GitHubRepoError(str(exc)) from exc
-            headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "Authorization": f"Bearer {token}"}
+            headers = {
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "Authorization": f"Bearer {token}",
+            }
             client = await self._get_client()
             for attempt in range(4):
                 response: httpx.Response | None = None
@@ -126,15 +137,23 @@ class GitHubRepo:
         if self._authorized:
             return
         try:
-            for page in range(1, 11):
-                data = await github_app_get(f"/installation/repositories?per_page=100&page={page}", self.installation_id)
+            for page in range(1, 101):
+                data = await github_app_get(
+                    f"/installation/repositories?per_page=100&page={page}",
+                    self.installation_id,
+                )
                 if not isinstance(data, dict):
                     raise GitHubRepoError("Invalid GitHub installation repository response")
                 repositories = data.get("repositories")
                 if not isinstance(repositories, list):
                     raise GitHubRepoError("Invalid GitHub installation repository response")
                 target = self.full_name.casefold()
-                if any(isinstance(item, dict) and isinstance(item.get("full_name"), str) and item["full_name"].casefold() == target for item in repositories):
+                if any(
+                    isinstance(item, dict)
+                    and isinstance(item.get("full_name"), str)
+                    and item["full_name"].casefold() == target
+                    for item in repositories
+                ):
                     self._authorized = True
                     return
                 if len(repositories) < 100:
@@ -187,6 +206,31 @@ class GitHubRepo:
                 return item
         return None
 
+    async def workflow_runs_for_commit(self, commit_sha: str) -> list[dict[str, Any]]:
+        await self._authorize_repository()
+        data = await self._request("GET", f"/actions/runs?head_sha={quote(commit_sha, safe='')}&per_page=20")
+        if not isinstance(data, dict):
+            raise GitHubRepoError("Invalid GitHub Actions workflow response")
+        runs = data.get("workflow_runs")
+        if not isinstance(runs, list):
+            raise GitHubRepoError("Invalid GitHub Actions workflow response")
+        return [run for run in runs if isinstance(run, dict)]
+
+    async def workflow_run_jobs(self, run_id: int) -> list[dict[str, Any]]:
+        await self._authorize_repository()
+        all_jobs: list[dict[str, Any]] = []
+        for page in range(1, 11):
+            data = await self._request("GET", f"/actions/runs/{int(run_id)}/jobs?per_page=100&page={page}")
+            if not isinstance(data, dict):
+                raise GitHubRepoError("Invalid GitHub Actions jobs response")
+            jobs = data.get("jobs")
+            if not isinstance(jobs, list):
+                raise GitHubRepoError("Invalid GitHub Actions jobs response")
+            all_jobs.extend(job for job in jobs if isinstance(job, dict))
+            if len(jobs) < 100:
+                break
+        return all_jobs
+
     async def create_branch(self, name: str, base: str) -> None:
         await self._authorize_repository()
         source = await self.commit(base)
@@ -196,8 +240,9 @@ class GitHubRepo:
             if "GitHub API 422" not in str(exc):
                 raise
             existing = await self._request("GET", f"/git/ref/heads/{quote(name, safe='/')}")
-            if not isinstance(existing, dict) or not ((existing.get("object") or {}).get("sha")):
-                raise
+            existing_sha = (existing.get("object") or {}).get("sha") if isinstance(existing, dict) else None
+            if existing_sha != source["sha"]:
+                raise GitHubRepoError("Task branch already exists at a different commit") from exc
 
     async def update_branch(self, branch: str, sha: str) -> None:
         await self._authorize_repository()
@@ -223,16 +268,20 @@ class GitHubRepo:
             tree_entries.append({"path": path, "mode": "100644", "type": "blob", "content": content})
         tree = await self._request("POST", "/git/trees", json={"base_tree": base_tree, "tree": tree_entries})
         new_commit = await self._request("POST", "/git/commits", json={"message": message, "tree": tree["sha"], "parents": [head["sha"]]})
+        new_sha = new_commit["sha"]
         ref_path = f"/git/refs/heads/{quote(branch, safe='/')}"
-        ref_payload = {"sha": new_commit["sha"], "force": False}
+        ref_payload = {"sha": new_sha, "force": False}
         try:
             await self._request("PATCH", ref_path, json=ref_payload)
         except GitHubRepoError as first_error:
-            try:
-                await self._request("PATCH", ref_path, json=ref_payload)
-            except GitHubRepoError:
-                raise first_error
-        return new_commit["sha"]
+            current = await self._request("GET", f"/git/ref/heads/{quote(branch, safe='/')}")
+            current_sha = (current.get("object") or {}).get("sha") if isinstance(current, dict) else None
+            if current_sha == new_sha:
+                return new_sha
+            if current_sha != head["sha"]:
+                raise GitHubRepoError("Branch changed while applying task commit; refusing unsafe overwrite") from first_error
+            await self._request("PATCH", ref_path, json=ref_payload)
+        return new_sha
 
     async def pull_request(self, branch: str, base: str, title: str, body: str) -> dict[str, Any]:
         await self._authorize_repository()

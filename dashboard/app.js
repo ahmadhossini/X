@@ -1,207 +1,43 @@
 (() => {
   const tg = window.Telegram?.WebApp;
-  if (tg) {
-    tg.ready();
-    tg.expand();
-  }
-
+  if (tg) { tg.ready(); tg.expand(); }
   const $ = (id) => document.getElementById(id);
-  const status = $('status');
-  const connectBtn = $('connectBtn');
-  const taskBtn = $('taskBtn');
-  const refreshBtn = $('refreshBtn');
-  const languageBtn = $('languageBtn');
-  const taskResult = $('taskResult');
-
   const copy = {
-    fa: {
-      dir: 'rtl', title: 'دستیار کدنویسی', ready: 'آماده', loading: 'در حال بارگذاری...', connected: 'GitHub متصل است',
-      heroTitle: 'پروژه‌ات را به Agent بسپار', heroText: 'مخزن GitHub را وصل کن، درخواست تغییر کد را بنویس و نتیجه را به شکل Branch و Pull Request دریافت کن.',
-      connect: 'اتصال GitHub', connectedAs: 'متصل به', repos: 'مخزن‌ها', refresh: 'به‌روزرسانی',
-      empty: 'برای نمایش مخزن‌ها ابتدا GitHub را وصل کنید.', task: 'درخواست کدنویسی', repo: 'Repository',
-      request: 'درخواست', send: 'ارسال درخواست', account: 'حساب', credits: 'اعتبار',
-      sent: 'درخواست ثبت شد و در صف اجرا قرار گرفت.', failed: 'خطا در اجرای درخواست',
-      required: 'Repository و درخواست الزامی هستند.', connectFirst: 'ابتدا GitHub را وصل کنید.',
-      taskStatus: 'وضعیت کار', queued: 'در صف', running: 'در حال اجرا', planning: 'در حال تحلیل',
-      branch_created: 'Branch ساخته شد', committed: 'Commit ساخته شد', pr_created: 'Pull Request ساخته شد',
-      completed: 'تکمیل شد', noChanges: 'تغییری لازم نبود.'
-    },
-    en: {
-      dir: 'ltr', title: 'Coding Agent', ready: 'Ready', loading: 'Loading...', connected: 'GitHub connected',
-      heroTitle: 'Give your project to the Agent', heroText: 'Connect GitHub, describe a code change, and receive the result as a Branch and Pull Request.',
-      connect: 'Connect GitHub', connectedAs: 'Connected to', repos: 'Repositories', refresh: 'Refresh',
-      empty: 'Connect GitHub first to load repositories.', task: 'Coding request', repo: 'Repository',
-      request: 'Request', send: 'Send request', account: 'Account', credits: 'Credits',
-      sent: 'Request queued for execution.', failed: 'Task execution failed',
-      required: 'Repository and request are required.', connectFirst: 'Connect GitHub first.',
-      taskStatus: 'Task status', queued: 'Queued', running: 'Running', planning: 'Planning',
-      branch_created: 'Branch created', committed: 'Commit created', pr_created: 'Pull Request created',
-      completed: 'Completed', noChanges: 'No changes were needed.'
-    },
-    hi: {
-      dir: 'ltr', title: 'कोडिंग एजेंट', ready: 'तैयार', loading: 'लोड हो रहा है...', connected: 'GitHub कनेक्ट है',
-      heroTitle: 'अपना प्रोजेक्ट Agent को दें', heroText: 'GitHub कनेक्ट करें, कोड बदलाव लिखें और परिणाम Branch और Pull Request के रूप में पाएँ।',
-      connect: 'GitHub कनेक्ट करें', connectedAs: 'कनेक्टेड', repos: 'Repositories', refresh: 'रिफ्रेश',
-      empty: 'Repositories देखने के लिए पहले GitHub कनेक्ट करें।', task: 'कोडिंग अनुरोध', repo: 'Repository',
-      request: 'अनुरोध', send: 'अनुरोध भेजें', account: 'खाता', credits: 'क्रेडिट',
-      sent: 'अनुरोध कतार में भेज दिया गया है।', failed: 'कार्य विफल हुआ',
-      required: 'Repository और अनुरोध आवश्यक हैं।', connectFirst: 'पहले GitHub कनेक्ट करें।',
-      taskStatus: 'कार्य स्थिति', queued: 'कतार में', running: 'चल रहा है', planning: 'विश्लेषण हो रहा है',
-      branch_created: 'Branch बनाई गई', committed: 'Commit बनाया गया', pr_created: 'Pull Request बनाया गया',
-      completed: 'पूरा हुआ', noChanges: 'कोई बदलाव आवश्यक नहीं था।'
-    }
+    fa:{title:'XAI Code Agent',loading:'در حال بارگذاری...',error:'خطا در بارگذاری اطلاعات',connected:'متصل',disconnected:'قطع',repos:'مخزن‌ها',all:'همه',subscription:'اشتراک',free:'Free',pro:'Pro',buy:'خرید Pro',month:'/ ماه',private:'خصوصی',public:'عمومی'},
+    en:{title:'XAI Code Agent',loading:'Loading...',error:'Failed to load account',connected:'Connected',disconnected:'Offline',repos:'Repositories',all:'All',subscription:'Subscription',free:'Free',pro:'Pro',buy:'Get Pro',month:'/ month',private:'Private',public:'Public'},
+    hi:{title:'XAI Code Agent',loading:'लोड हो रहा है...',error:'खाता लोड नहीं हो सका',connected:'कनेक्ट है',disconnected:'ऑफलाइन',repos:'Repositories',all:'सभी',subscription:'सब्सक्रिप्शन',free:'Free',pro:'Pro',buy:'Pro लें',month:'/ माह',private:'Private',public:'Public'}
   };
-
-  let lang = localStorage.getItem('xai_lang') || 'fa';
-  let me = null;
-  const initData = tg?.initData || '';
-
-  function headers() {
-    return { 'Content-Type': 'application/json', 'Authorization': `tma ${initData}` };
+  let lang=localStorage.getItem('xai_lang')||'fa'; let me=null; let repositories=[]; const initData=tg?.initData||'';
+  function headers(){return {'Content-Type':'application/json',Authorization:`tma ${initData}`};}
+  async function api(path,options={}){const response=await fetch(path,{...options,headers:{...headers(),...(options.headers||{})}});let data={};try{data=await response.json();}catch(_){}if(!response.ok)throw new Error(data.detail||`HTTP ${response.status}`);return data;}
+  function render(){
+    const c=copy[lang]||copy.fa; document.documentElement.lang=lang; document.documentElement.dir=lang==='fa'?'rtl':'ltr'; document.title=c.title;
+    $('homeReposTitle').textContent=c.repos; $('homeReposButton').textContent=c.all; $('reposTitle').textContent=c.repos; $('subscriptionTitle').textContent=c.subscription;
+    $('buyButton').textContent=c.buy; $('proPeriod').textContent=c.month;
+    $('connection').title=me?.github_connected?c.connected:c.disconnected; $('connection').style.background=me?.github_connected?'#27ae60':'#c7cdd5';
+    $('credits').textContent=me?.credits??'—'; $('subscriptionCredits').textContent=me?.credits??'—';
+    const plan=me?.plan==='pro'||me?.plan==='pro_plus'?me.plan:c.free; $('currentPlan').textContent=plan;
+    const profile=me?.github_profile||{}; $('profileName').textContent=profile.name||profile.login||me?.github_login||'GitHub'; $('profileLogin').textContent=profile.login?`@${profile.login}`:''; $('avatar').src=profile.avatar_url||'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='; $('avatar').alt=profile.login||'GitHub'; showRepos(repositories);
   }
-
-  async function api(path, options = {}) {
-    const response = await fetch(path, { ...options, headers: { ...headers(), ...(options.headers || {}) } });
-    let data = {};
-    try { data = await response.json(); } catch (_) {}
-    if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
-    return data;
+  function repoElement(repo){
+    const item=document.createElement('button'); item.type='button'; item.className='repo';
+    const icon=document.createElement('span'); icon.className='repo-icon'; icon.setAttribute('aria-hidden','true');
+    icon.innerHTML='<svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.18-3.37-1.18-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.35 1.09 2.92.83.09-.65.35-1.09.63-1.34-2.22-.25-4.56-1.11-4.56-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.56 9.56 0 0 1 12 7.01c.85 0 1.71.12 2.51.35 1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.67.92.67 1.86v2.76c0 .27.18.58.69.48A10 10 0 0 0 12 2Z"/></svg>';
+    const body=document.createElement('span'); body.className='repo-body';
+    const title=document.createElement('strong'); title.textContent=repo.name||repo.full_name;
+    const owner=document.createElement('span'); owner.className='repo-owner'; owner.textContent=repo.owner||repo.full_name?.split('/')[0]||'';
+    const meta=document.createElement('span'); meta.className='repo-meta'; const c=copy[lang]||copy.fa;
+    const visibility=document.createElement('span'); visibility.className=`repo-visibility ${repo.private?'is-private':'is-public'}`; visibility.textContent=repo.private?c.private:c.public;
+    const branch=document.createElement('span'); branch.textContent=repo.default_branch||'main';
+    meta.append(visibility,branch); body.append(title,owner,meta);
+    const arrow=document.createElement('span'); arrow.className='repo-arrow'; arrow.innerHTML='<svg viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>';
+    item.append(icon,body,arrow);
+    item.addEventListener('click',()=>{if(repo.html_url&&tg?.openLink)tg.openLink(repo.html_url);else if(repo.html_url)window.location.href=repo.html_url;});
+    return item;
   }
-
-  function render() {
-    const c = copy[lang] || copy.fa;
-    document.documentElement.lang = lang;
-    document.documentElement.dir = c.dir;
-    $('title').textContent = c.title;
-    status.textContent = me ? (me.github_connected ? c.connected : c.ready) : c.loading;
-    $('heroTitle').textContent = c.heroTitle;
-    $('heroText').textContent = c.heroText;
-    connectBtn.textContent = c.connect;
-    $('repoTitle').textContent = c.repos;
-    refreshBtn.textContent = c.refresh;
-    $('taskTitle').textContent = c.task;
-    $('repoLabel').textContent = c.repo;
-    $('requestLabel').textContent = c.request;
-    taskBtn.textContent = c.send;
-    $('accountTitle').textContent = c.account;
-    $('creditsLabel').textContent = c.credits;
-    languageBtn.textContent = 'English / हिन्दी / فارسی';
-    $('requestInput').placeholder = lang === 'fa' ? 'مثلاً: خطای ورود را پیدا و اصلاح کن' : lang === 'hi' ? 'उदाहरण: लॉगिन की समस्या खोजकर ठीक करें' : 'Example: find and fix the login error';
-    $('plan').textContent = me?.plan || '—';
-    $('credits').textContent = me?.credits ?? '—';
-  }
-
-  function showRepos(items) {
-    const box = $('repos');
-    if (!items.length) { box.textContent = (copy[lang] || copy.fa).empty; return; }
-    box.innerHTML = '';
-    items.forEach((repo) => {
-      const button = document.createElement('button');
-      button.className = 'ghost full';
-      button.type = 'button';
-      button.textContent = repo.full_name;
-      button.addEventListener('click', () => { $('repoInput').value = repo.full_name; });
-      box.appendChild(button);
-    });
-  }
-
-  async function loadMe() {
-    if (!initData) {
-      status.textContent = 'Open this page inside Telegram.';
-      return;
-    }
-    try {
-      me = await api('/api/miniapp/me');
-      if (me.language && ['fa', 'en', 'hi'].includes(me.language)) {
-        lang = me.language;
-        localStorage.setItem('xai_lang', lang);
-      }
-      render();
-      if (me.github_connected) await loadRepos();
-    } catch (error) {
-      status.textContent = error.message;
-    }
-  }
-
-  async function loadRepos() {
-    try {
-      const data = await api('/api/miniapp/repos');
-      showRepos(data.repositories || []);
-    } catch (error) {
-      showRepos([]);
-      status.textContent = error.message;
-    }
-  }
-
-  connectBtn.addEventListener('click', async () => {
-    try {
-      const data = await api('/api/miniapp/github/connect');
-      if (data.url) window.location.href = data.url;
-    } catch (error) {
-      status.textContent = error.message;
-    }
-  });
-
-  refreshBtn.addEventListener('click', async () => {
-    await loadMe();
-  });
-
-  taskBtn.addEventListener('click', async () => {
-    const c = copy[lang] || copy.fa;
-    const repo = $('repoInput').value.trim();
-    const request = $('requestInput').value.trim();
-    if (!repo || !request) {
-      taskResult.hidden = false;
-      taskResult.textContent = c.required;
-      return;
-    }
-    taskBtn.disabled = true;
-    taskResult.hidden = false;
-    taskResult.textContent = c.loading;
-    try {
-      const result = await api('/api/miniapp/task', {
-        method: 'POST',
-        body: JSON.stringify({ repository: repo, request, language: lang })
-      });
-      taskResult.textContent = `${c.sent} ${c.taskStatus}: ${c[result.status] || result.status}`;
-      pollTask(result.task_id);
-      await loadMe();
-    } catch (error) {
-      taskResult.textContent = `${c.failed}: ${error.message}`;
-    } finally {
-      taskBtn.disabled = false;
-    }
-  });
-
-  async function pollTask(taskId) {
-    const c = copy[lang] || copy.fa;
-    for (let i = 0; i < 120; i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 3000));
-      try {
-        const task = await api(`/api/miniapp/task/${encodeURIComponent(taskId)}`);
-        const label = c[task.status] || task.status;
-        taskResult.textContent = `${c.taskStatus}: ${label}`;
-        if (task.status === 'completed') {
-          const extra = task.pull_request_number ? ` PR #${task.pull_request_number}` : '';
-          taskResult.textContent += extra;
-          await loadMe();
-          return;
-        }
-        if (task.status === 'failed' || task.status === 'cancelled') return;
-      } catch (_) {
-        return;
-      }
-    }
-  }
-
-  languageBtn.addEventListener('click', async () => {
-    lang = lang === 'fa' ? 'en' : lang === 'en' ? 'hi' : 'fa';
-    localStorage.setItem('xai_lang', lang);
-    render();
-    try { await api('/api/miniapp/language', { method: 'POST', body: JSON.stringify({ language: lang }) }); }
-    catch (error) { status.textContent = error.message; }
-  });
-
-  render();
-  loadMe();
+  function showRepos(items){repositories=items||[];[$('repos'),$('homeRepos')].forEach(box=>{box.innerHTML='';if(!repositories.length){const empty=document.createElement('div');empty.className='empty';empty.textContent='—';box.appendChild(empty);return;}repositories.slice(0,box.id==='homeRepos'?5:100).forEach(repo=>box.appendChild(repoElement(repo)));});}
+  function openPage(page){document.querySelectorAll('.page').forEach(el=>el.classList.toggle('active',el.id===`page-${page}`));document.querySelectorAll('.tab').forEach(el=>el.classList.toggle('active',el.dataset.page===page));if(tg?.HapticFeedback)tg.HapticFeedback.selectionChanged();}
+  async function load(){if(!initData){$('loading').hidden=true;$('error').hidden=false;$('error').textContent='Open this page inside Telegram.';return;}try{me=await api('/api/miniapp/me');lang=['fa','en','hi'].includes(me.language)?me.language:lang;localStorage.setItem('xai_lang',lang);render();if(me.github_connected){const data=await api('/api/miniapp/repos');showRepos(data.repositories||[]);} $('loading').hidden=true;$('error').hidden=true;$('app').hidden=false;}catch(error){$('loading').hidden=true;$('error').hidden=false;$('error').textContent=`${(copy[lang]||copy.fa).error}: ${error.message}`;}}
+  document.querySelectorAll('.tab').forEach(tab=>tab.addEventListener('click',()=>openPage(tab.dataset.page))); $('homeReposButton').addEventListener('click',()=>openPage('repos')); $('refresh').addEventListener('click',load); $('buyButton').addEventListener('click',()=>{if(tg?.showPopup)tg.showPopup({title:'XAI Code Agent',message:'Pro'});});
+  render(); load();
 })();
