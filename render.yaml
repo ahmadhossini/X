@@ -25,9 +25,27 @@ services:
         sync: false
       - key: PUBLIC_BASE_URL
         sync: false
+      - key: MINIAPP_URL
+        sync: false
       - key: CODE_AGENT_API_KEY
         sync: false
-      - key: TELEGRAM_ADMIN_IDS
+      - key: ADMIN_IDS
         sync: false
       - key: DATABASE_URL
         sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: TON_WALLET_ADDRESS
+        sync: false
+      - key: TON_PRO_PRICE_NANO_TON
+        sync: false
+      - key: TON_NETWORK
+        value: mainnet
+      - key: FREE_MONTHLY_CREDITS
+        value: "5"
+      - key: PRO_MONTHLY_CREDITS
+        value: "500"
+      - key: CODE_AGENT_WORKERS
+        value: "4"
+      - key: CODE_AGENT_QUEUE_SIZE
+        value: "1000"
