@@ -20,7 +20,12 @@ async def get_pool() -> ArqRedis:
 
 async def enqueue_github_event(payload: dict) -> str:
     pool = await get_pool()
-    job = await pool.enqueue_job("process_github_event", payload)
+    delivery_id = str(payload.get("_delivery_id") or "")
+    job = await pool.enqueue_job(
+        "process_github_event",
+        payload,
+        _job_id=f"github:{delivery_id}" if delivery_id else None,
+    )
     if job is None:
         raise RuntimeError("GitHub event job already exists or was rejected")
     return job.job_id
