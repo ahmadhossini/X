@@ -55,3 +55,30 @@ services:
         value: "4"
       - key: CODE_AGENT_QUEUE_SIZE
         value: "1000"
+
+  - type: worker
+    name: xai-code-agent-worker
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: arq app.workers.arq_worker.WorkerSettings
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GITHUB_APP_ID
+        sync: false
+      - key: GITHUB_APP_SLUG
+        sync: false
+      - key: GITHUB_APP_PRIVATE_KEY
+        sync: false
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CODE_AGENT_WORKERS
+        value: "4"
+      - key: CODE_AGENT_QUEUE_SIZE
+        value: "1000"
