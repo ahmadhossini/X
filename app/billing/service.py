@@ -20,6 +20,17 @@ class BillingServiceError(RuntimeError):
 def create_pro_payment(db: Session, user_id: int) -> TonPaymentIntent:
     if "pro" not in PLANS:
         raise BillingServiceError("Pro plan is not configured")
+    existing = db.scalar(
+        select(Payment).where(Payment.user_id == user_id, Payment.plan == "pro", Payment.status == "pending")
+        .order_by(Payment.created_at.desc())
+    )
+    if existing is not None:
+        return TonPaymentIntent(
+            payment_id=existing.id,
+            amount_nano_ton=existing.amount_nano_ton,
+            destination=existing.destination,
+            memo=existing.memo,
+        )
     payment_id = uuid4().hex
     intent = TonPaymentService(settings.ton_wallet_address).create_intent(
         payment_id,
