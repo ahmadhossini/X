@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import httpx
+from code_agent.github_app import github_app_get, github_app_get_installation
 
 
 class GitHubServiceError(RuntimeError):
@@ -10,20 +10,35 @@ class GitHubServiceError(RuntimeError):
 
 
 class GitHubService:
-    """Application-level GitHub boundary; handlers/workers should depend on this API."""
+    """Application boundary for GitHub App installation operations."""
 
-    def __init__(self, token: str, base_url: str = "https://api.github.com") -> None:
-        self._client = httpx.AsyncClient(
-            base_url=base_url,
-            timeout=httpx.Timeout(20.0, connect=10.0),
-            headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}", "X-GitHub-Api-Version": "2022-11-28"},
-        )
+    async def get_installation(self, installation_id: int) -> dict[str, Any]:
+        try:
+            return await github_app_get_installation(installation_id)
+        except Exception as exc:
+            raise GitHubServiceError(str(exc)) from exc
 
-    async def get_repository(self, full_name: str) -> dict[str, Any]:
-        response = await self._client.get(f"/repos/{full_name}")
-        if response.status_code >= 400:
-            raise GitHubServiceError(f"GitHub repository lookup failed: {response.status_code}")
-        return response.json()
+    async def get(self, installation_id: int, path: str) -> Any:
+        if not path.startswith("/"):
+            raise ValueError("GitHub API path must start with '/'")
+        try:
+            return await github_app_get(path, installation_id)
+        except Exception as exc:
+            raise GitHubServiceError(str(exc)) from exc
 
-    async def close(self) -> None:
-        await self._client.aclose()
+    async def list_repositories(self, installation_id: int) -> list[dict[str, Any]]:
+        repositories: list[dict[str, Any]] = []
+        page = 1
+        while True:
+            data = await self.get(
+                installation_id,
+                f"/installation/repositories?per_page=100&page={page}",
+            )
+            batch = data.get("repositories", []) if isinstance(data, dict) else []
+            if not batch:
+                break
+            repositories.extend(item for item in batch if isinstance(item, dict))
+            if len(batch) < 100:
+                break
+            page += 1
+        return repositories
