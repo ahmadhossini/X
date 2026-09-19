@@ -49,6 +49,10 @@ class Settings:
     ton_wallet_address: str = os.getenv("TON_WALLET_ADDRESS", "").strip()
     ton_pro_price_nano_ton: int = _positive_int("TON_PRO_PRICE_NANO_TON", 1, 1, 10_000_000_000_000)
     ton_network: str = os.getenv("TON_NETWORK", "mainnet").strip().lower()
+    toncenter_api_key: str = (
+        os.getenv("TONCENTER_API_KEY", "").strip()
+        or os.getenv("TON_API_KEY", "").strip()
+    )
 
 
 settings = Settings()
