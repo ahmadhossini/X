@@ -27,7 +27,9 @@ async def enqueue_github_event(payload: dict) -> str:
         _job_id=f"github:{delivery_id}" if delivery_id else None,
     )
     if job is None:
-        raise RuntimeError("GitHub event job already exists or was rejected")
+        if delivery_id:
+            return f"github:{delivery_id}"
+        raise RuntimeError("GitHub event job was rejected")
     return job.job_id
 
 
