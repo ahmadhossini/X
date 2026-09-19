@@ -47,20 +47,27 @@ async def github_webhook(
         if existing and existing.processed:
             return {"status": "duplicate", "event": event}
 
-        record = WebhookEvent(
-            delivery_id=x_github_delivery,
-            provider="github",
-            event_type=event,
-            payload=json.dumps(payload, separators=(",", ":")),
-            processed=False,
-        )
-        db.add(record)
-        try:
+        if existing is None:
+            record = WebhookEvent(
+                delivery_id=x_github_delivery,
+                provider="github",
+                event_type=event,
+                payload=json.dumps(payload, separators=(",", ":")),
+                processed=False,
+            )
+            db.add(record)
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                existing = db.query(WebhookEvent).filter(WebhookEvent.delivery_id == x_github_delivery).first()
+                if existing and existing.processed:
+                    return {"status": "duplicate", "event": event}
+        else:
+            existing.payload = json.dumps(payload, separators=(",", ":"))
+            existing.event_type = event
+            existing.processed = False
             db.commit()
-        except IntegrityError:
-            db.rollback()
-            return {"status": "duplicate", "event": event}
-
         if event == "installation":
             installation = payload.get("installation") or {}
             installation_id = installation.get("id")
