@@ -87,7 +87,7 @@ def _init_data(authorization: str | None, x_telegram_init_data: str | None) -> s
 
 
 @router.get("/me")
-def me(
+async def me(
     authorization: str | None = Header(default=None),
     x_telegram_init_data: str | None = Header(default=None),
 ) -> dict:
