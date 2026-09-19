@@ -36,6 +36,8 @@ def init_db() -> None:
         return
 
     columns = {column["name"] for column in inspector.get_columns("users")}
+    columns = {column["name"] for column in inspector.get_columns("users")}
+    columns = {column["name"] for column in inspector.get_columns("users")}
     reset_type = "DATETIME" if _is_sqlite else "TIMESTAMP WITH TIME ZONE"
     with engine.begin() as connection:
         if "language" not in columns:
@@ -46,3 +48,36 @@ def init_db() -> None:
             connection.execute(text("ALTER TABLE users ADD COLUMN credits INTEGER NOT NULL DEFAULT 5"))
         if "credits_reset_at" not in columns:
             connection.execute(text(f"ALTER TABLE users ADD COLUMN credits_reset_at {reset_type} NULL"))
+
+    # Lightweight forward migrations for billing tables. create_all() does not add
+    # columns to tables that already exist in a deployed database.
+    timestamp_type = "DATETIME" if _is_sqlite else "TIMESTAMP WITH TIME ZONE"
+    table_columns = {
+        table: {column["name"] for column in inspector.get_columns(table)}
+        for table in ("subscriptions", "payments")
+        if table in inspector.get_table_names()
+    }
+    billing_columns = {
+        "subscriptions": {
+            "plan": "VARCHAR(16) NOT NULL DEFAULT 'free'",
+            "status": "VARCHAR(24) NOT NULL DEFAULT 'active'",
+            "starts_at": f"{timestamp_type} NULL",
+            "expires_at": f"{timestamp_type} NULL",
+            "updated_at": f"{timestamp_type} NULL",
+        },
+        "payments": {
+            "plan": "VARCHAR(16) NOT NULL DEFAULT 'pro'",
+            "amount_nano_ton": "BIGINT NOT NULL DEFAULT 0",
+            "destination": "VARCHAR(255) NOT NULL DEFAULT ''",
+            "memo": "VARCHAR(128) NOT NULL DEFAULT ''",
+            "tx_hash": "VARCHAR(128) NULL",
+            "status": "VARCHAR(24) NOT NULL DEFAULT 'pending'",
+            "created_at": f"{timestamp_type} NULL",
+            "confirmed_at": f"{timestamp_type} NULL",
+        },
+    }
+    with engine.begin() as connection:
+        for table, definitions in billing_columns.items():
+            for name, definition in definitions.items():
+                if table in table_columns and name not in table_columns[table]:
+                    connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {definition}"))
