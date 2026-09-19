@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -27,7 +28,7 @@ def _session(authorization: str | None, x_telegram_init_data: str | None) -> str
 def create_ton_pro_payment(
     authorization: str | None = Header(default=None),
     x_telegram_init_data: str | None = Header(default=None),
-) -> dict[str, str | int]:
+) -> dict[str, str | int | float]:
     user = _auth_user(_session(authorization, x_telegram_init_data))
     with SessionLocal() as db:
         try:
