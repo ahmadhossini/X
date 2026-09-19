@@ -42,16 +42,8 @@ def _telegram_user(init_data: str) -> dict:
         if not supplied_hash or len(supplied_hash) != 64:
             raise ValueError
         data_check_string = "\n".join(f"{key}={pairs[key]}" for key in sorted(pairs))
-        secret = hmac.new(
-            b"WebAppData",
-            settings.bot_token.encode("utf-8"),
-            hashlib.sha256,
-        ).digest()
-        expected_hash = hmac.new(
-            secret,
-            data_check_string.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
+        secret = hmac.new(b"WebAppData", settings.bot_token.encode("utf-8"), hashlib.sha256).digest()
+        expected_hash = hmac.new(secret, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected_hash, supplied_hash):
             raise ValueError
         auth_date = int(pairs.get("auth_date", "0"))
@@ -96,11 +88,7 @@ async def me(
         current = db.scalar(select(User).where(User.id == user.id))
         if not current:
             raise HTTPException(status_code=401, detail="User session not found")
-        installation = db.scalar(
-            select(GitHubInstallation)
-            .where(GitHubInstallation.user_id == current.id, GitHubInstallation.active.is_(True))
-            .order_by(GitHubInstallation.updated_at.desc())
-        )
+        installation = db.scalar(select(GitHubInstallation).where(GitHubInstallation.user_id == current.id, GitHubInstallation.active.is_(True)).order_by(GitHubInstallation.updated_at.desc()))
         result = {
             "telegram_id": current.telegram_id,
             "language": current.language if current.language in SUPPORTED_LANGUAGES else "en",
@@ -110,6 +98,7 @@ async def me(
             "github_login": installation.github_login if installation else None,
             "installation_id": installation.installation_id if installation else None,
             "github_avatar_url": None,
+            "ton_pro_price_ton": settings.ton_pro_price_nano_ton / 1_000_000_000,
         }
     if installation:
         try:
@@ -120,135 +109,3 @@ async def me(
         except GitHubAppError:
             pass
     return result
-
-
-@router.post("/language")
-def language(
-    payload: LanguageRequest,
-    authorization: str | None = Header(default=None),
-    x_telegram_init_data: str | None = Header(default=None),
-) -> dict:
-    user = _auth_user(_init_data(authorization, x_telegram_init_data))
-    if payload.language not in SUPPORTED_LANGUAGES:
-        raise HTTPException(status_code=400, detail="Unsupported language")
-    with SessionLocal() as db:
-        current = db.scalar(select(User).where(User.id == user.id).with_for_update())
-        if not current:
-            raise HTTPException(status_code=401, detail="User session not found")
-        current.language = payload.language
-        db.commit()
-    return {"language": payload.language}
-
-
-@router.get("/repos")
-async def repos(
-    authorization: str | None = Header(default=None),
-    x_telegram_init_data: str | None = Header(default=None),
-) -> dict:
-    user = _auth_user(_init_data(authorization, x_telegram_init_data))
-    with SessionLocal() as db:
-        installation = db.scalar(
-            select(GitHubInstallation)
-            .where(GitHubInstallation.user_id == user.id, GitHubInstallation.active.is_(True))
-            .order_by(GitHubInstallation.updated_at.desc())
-        )
-    if not installation:
-        raise HTTPException(status_code=409, detail="GitHub not connected")
-    try:
-        repositories = []
-        for page in range(1, 11):
-            data = await github_app_get(
-                f"/installation/repositories?per_page=100&page={page}",
-                installation.installation_id,
-            )
-            page_items = data.get("repositories", [])
-            repositories.extend(page_items)
-            if len(page_items) < 100:
-                break
-    except GitHubAppError:
-        raise HTTPException(status_code=502, detail="GitHub is temporarily unavailable")
-
-    repositories = [
-        {
-            "id": repo.get("id"),
-            "name": repo.get("name"),
-            "full_name": repo.get("full_name"),
-            "html_url": repo.get("html_url"),
-            "description": repo.get("description"),
-            "private": bool(repo.get("private")),
-            "default_branch": (repo.get("default_branch") or "main"),
-            "owner_login": (repo.get("owner") or {}).get("login"),
-            "owner_avatar_url": (repo.get("owner") or {}).get("avatar_url"),
-            "visibility": "private" if repo.get("private") else "public",
-            "language": repo.get("language"),
-            "stargazers_count": repo.get("stargazers_count", 0),
-            "forks_count": repo.get("forks_count", 0),
-            "open_issues_count": repo.get("open_issues_count", 0),
-            "updated_at": repo.get("updated_at"),
-        }
-        for repo in repositories
-        if repo.get("full_name")
-    ]
-    repositories.sort(
-        key=lambda repo: repo.get("updated_at") or "",
-        reverse=True,
-    )
-    return {"repositories": repositories}
-
-
-@router.post("/task")
-def task(
-    payload: TaskRequest,
-    authorization: str | None = Header(default=None),
-    x_telegram_init_data: str | None = Header(default=None),
-) -> dict:
-    user = _auth_user(_init_data(authorization, x_telegram_init_data))
-    language = payload.language or user.language
-    if language not in SUPPORTED_LANGUAGES:
-        language = "en"
-    credits = estimate_task_credits(payload.request)
-    try:
-        reservation = reserve_task_credits(
-            user.telegram_id,
-            payload.repository.strip(),
-            payload.request.strip(),
-            credits,
-            model=settings.gemini_model,
-            chat_id=user.telegram_id,
-            language=language,
-        )
-    except BillingError as exc:
-        status = 409 if str(exc) in {"Active task already exists", "GitHub not connected"} else 402
-        raise HTTPException(status_code=status, detail=str(exc))
-    return {
-        "task_id": reservation.task_id,
-        "status": "queued",
-        "credits_reserved": reservation.credits,
-        "credits_remaining": reservation.remaining,
-    }
-
-
-@router.get("/task/{task_id}")
-def task_status(
-    task_id: str,
-    authorization: str | None = Header(default=None),
-    x_telegram_init_data: str | None = Header(default=None),
-) -> dict:
-    user = _auth_user(_init_data(authorization, x_telegram_init_data))
-    with SessionLocal() as db:
-        task = db.scalar(
-            select(Task).where(Task.id == task_id, Task.user_id == user.id)
-        )
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {
-        "task_id": task.id,
-        "status": task.status,
-        "repository": task.repository,
-        "branch": task.branch,
-        "commit": task.commit_sha,
-        "pull_request_number": task.pull_request_number,
-        "error": task.error if task.status == "failed" else None,
-        "created_at": task.created_at,
-        "completed_at": task.completed_at,
-    }
