@@ -44,7 +44,7 @@ async def github_webhook(
     event = x_github_event or "unknown"
     with SessionLocal() as db:
         existing = db.query(WebhookEvent).filter(WebhookEvent.delivery_id == x_github_delivery).first()
-        if existing:
+        if existing and existing.processed:
             return {"status": "duplicate", "event": event}
 
         record = WebhookEvent(
