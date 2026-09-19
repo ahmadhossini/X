@@ -39,6 +39,10 @@ services:
         sync: false
       - key: TON_PRO_PRICE_NANO_TON
         sync: false
+      - key: TON_TEAM_PRICE_NANO_TON
+        sync: false
+      - key: TONCENTER_API_KEY
+        sync: false
       - key: TON_NETWORK
         value: mainnet
       - key: FREE_MONTHLY_CREDITS
