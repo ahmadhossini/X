@@ -41,7 +41,7 @@ class Settings:
     code_agent_api_key: str = os.getenv("CODE_AGENT_API_KEY", "")
     telegram_admin_ids: tuple[int, ...] = _csv_ints("TELEGRAM_ADMIN_IDS", "ADMIN_IDS")
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./xai_master.db")
-    redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    redis_url: str = os.getenv("REDIS_URL", "").strip()
     code_agent_workers: int = _positive_int("CODE_AGENT_WORKERS", 4, 1, 50)
     code_agent_queue_size: int = _positive_int("CODE_AGENT_QUEUE_SIZE", 1000, 50, 10000)
     free_monthly_credits: int = _positive_int("FREE_MONTHLY_CREDITS", 5, 1, 1000)
