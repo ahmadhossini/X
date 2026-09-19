@@ -36,8 +36,6 @@ def init_db() -> None:
         return
 
     columns = {column["name"] for column in inspector.get_columns("users")}
-    columns = {column["name"] for column in inspector.get_columns("users")}
-    columns = {column["name"] for column in inspector.get_columns("users")}
     reset_type = "DATETIME" if _is_sqlite else "TIMESTAMP WITH TIME ZONE"
     with engine.begin() as connection:
         if "language" not in columns:
