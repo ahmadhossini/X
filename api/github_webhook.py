@@ -5,10 +5,12 @@ import hmac
 import json
 
 from fastapi import APIRouter, Header, HTTPException, Request
-from sqlalchemy import select
+from redis.asyncio import Redis
+from sqlalchemy.exc import IntegrityError
 
+from app.events.bus import Event, EventBus
 from core.config import settings
-from database.models import GitHubInstallation
+from database.models import GitHubInstallation, WebhookEvent
 from database.session import SessionLocal
 
 router = APIRouter(prefix="/api/github", tags=["github"])
@@ -19,6 +21,7 @@ async def github_webhook(
     request: Request,
     x_hub_signature_256: str | None = Header(default=None),
     x_github_event: str | None = Header(default=None),
+    x_github_delivery: str | None = Header(default=None),
 ) -> dict[str, str]:
     body = await request.body()
     secret = settings.github_webhook_secret.encode("utf-8")
@@ -27,22 +30,52 @@ async def github_webhook(
         raise HTTPException(status_code=500, detail="GITHUB_WEBHOOK_SECRET is not configured")
     if not x_hub_signature_256:
         raise HTTPException(status_code=401, detail="Missing GitHub signature")
+    if not x_github_delivery:
+        raise HTTPException(status_code=400, detail="Missing GitHub delivery id")
 
     expected = "sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(expected, x_hub_signature_256):
         raise HTTPException(status_code=401, detail="Invalid GitHub signature")
 
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
     event = x_github_event or "unknown"
-    if event == "installation":
+    with SessionLocal() as db:
+        existing = db.query(WebhookEvent).filter(WebhookEvent.delivery_id == x_github_delivery).first()
+        if existing:
+            return {"status": "duplicate", "event": event}
+
+        record = WebhookEvent(
+            delivery_id=x_github_delivery,
+            provider="github",
+            event_type=event,
+            payload=json.dumps(payload, separators=(",", ":")),
+            processed=False,
+        )
+        db.add(record)
         try:
-            payload = json.loads(body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            raise HTTPException(status_code=400, detail="Invalid JSON payload")
-        installation_id = (payload.get("installation") or {}).get("id")
-        action = payload.get("action")
-        if installation_id and action in {"deleted", "suspend"}:
-            with SessionLocal() as db:
-                db.query(GitHubInstallation).filter(GitHubInstallation.installation_id == installation_id).update({"active": False})
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            return {"status": "duplicate", "event": event}
+
+        if event == "installation":
+            installation = payload.get("installation") or {}
+            installation_id = installation.get("id")
+            action = payload.get("action")
+            if installation_id and action in {"deleted", "suspend"}:
+                db.query(GitHubInstallation).filter(
+                    GitHubInstallation.installation_id == installation_id
+                ).update({"active": False})
                 db.commit()
 
-    return {"status": "ok", "event": event}
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        await EventBus(redis).publish(Event(topic=f"github.{event}", payload=payload))
+    finally:
+        await redis.aclose()
+
+    return {"status": "queued", "event": event}
