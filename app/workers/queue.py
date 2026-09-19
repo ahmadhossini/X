@@ -12,6 +12,8 @@ _pool: ArqRedis | None = None
 async def get_pool() -> ArqRedis:
     global _pool
     if _pool is None:
+        if not settings.redis_url:
+            raise RuntimeError("REDIS_URL is required for the event queue")
         _pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
     return _pool
 
