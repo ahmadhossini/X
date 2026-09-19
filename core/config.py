@@ -46,8 +46,10 @@ class Settings:
     code_agent_queue_size: int = _positive_int("CODE_AGENT_QUEUE_SIZE", 1000, 50, 10000)
     free_monthly_credits: int = _positive_int("FREE_MONTHLY_CREDITS", 5, 1, 1000)
     pro_monthly_credits: int = _positive_int("PRO_MONTHLY_CREDITS", 500, 10, 100000)
+    team_monthly_credits: int = _positive_int("TEAM_MONTHLY_CREDITS", 2000, 10, 1000000)
     ton_wallet_address: str = os.getenv("TON_WALLET_ADDRESS", "").strip()
     ton_pro_price_nano_ton: int = _positive_int("TON_PRO_PRICE_NANO_TON", 1, 1, 10_000_000_000_000)
+    ton_team_price_nano_ton: int = _positive_int("TON_TEAM_PRICE_NANO_TON", 1, 1, 100_000_000_000_000)
     ton_network: str = os.getenv("TON_NETWORK", "mainnet").strip().lower()
     toncenter_api_key: str = (
         os.getenv("TONCENTER_API_KEY", "").strip()
