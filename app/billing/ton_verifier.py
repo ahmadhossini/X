@@ -104,7 +104,7 @@ async def find_payment_transfer(
             continue
 
         amount = _amount_from_message(message)
-        if amount < amount_nano_ton:
+        if amount != amount_nano_ton:
             continue
 
         text = _extract_text(message)
