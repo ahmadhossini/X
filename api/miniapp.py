@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -11,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from billing.service import BillingError, estimate_task_credits, reserve_task_credits
-from code_agent.github_app import GitHubAppError, github_app_get
+from code_agent.github_app import GitHubAppError, github_app_get, github_app_get_installation
 from core.config import settings
 from database.models import GitHubInstallation, Task, User
 from database.session import SessionLocal
@@ -100,7 +101,7 @@ def me(
             .where(GitHubInstallation.user_id == current.id, GitHubInstallation.active.is_(True))
             .order_by(GitHubInstallation.updated_at.desc())
         )
-        return {
+        result = {
             "telegram_id": current.telegram_id,
             "language": current.language if current.language in SUPPORTED_LANGUAGES else "en",
             "plan": current.plan,
@@ -108,7 +109,17 @@ def me(
             "github_connected": installation is not None,
             "github_login": installation.github_login if installation else None,
             "installation_id": installation.installation_id if installation else None,
+            "github_avatar_url": None,
         }
+    if installation:
+        try:
+            info = await github_app_get_installation(installation.installation_id)
+            account = info.get("account") or {}
+            result["github_login"] = account.get("login") or result["github_login"]
+            result["github_avatar_url"] = account.get("avatar_url")
+        except GitHubAppError:
+            pass
+    return result
 
 
 @router.post("/language")
@@ -156,6 +167,9 @@ async def repos(
             "full_name": repo.get("full_name"),
             "private": bool(repo.get("private")),
             "default_branch": (repo.get("default_branch") or "main"),
+            "owner_login": (repo.get("owner") or {}).get("login"),
+            "owner_avatar_url": (repo.get("owner") or {}).get("avatar_url"),
+            "visibility": "private" if repo.get("private") else "public",
         }
         for repo in data.get("repositories", [])
         if repo.get("full_name")
