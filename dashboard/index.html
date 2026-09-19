@@ -38,12 +38,38 @@
     </section>
 
     <section id="reposPage" class="page">
-      <section class="card">
+      <section id="repoListView" class="card">
         <div class="section-head">
           <h2 id="reposTitle">مخزن‌ها</h2>
           <button id="refreshBtn" class="icon-btn" aria-label="Refresh">↻</button>
         </div>
         <div id="repos" class="repo-list"><div class="empty">در حال بارگذاری...</div></div>
+      </section>
+
+      <section id="repoDetailView" class="card repo-detail" hidden>
+        <div class="section-head detail-head">
+          <button id="repoBackBtn" class="icon-btn" aria-label="Back">‹</button>
+          <h2 id="repoDetailTitle">مخزن</h2>
+          <span></span>
+        </div>
+        <div class="repo-detail-profile">
+          <img id="repoDetailAvatar" class="repo-detail-avatar" alt="">
+          <div>
+            <strong id="repoDetailName">—</strong>
+            <span id="repoDetailOwner">@—</span>
+          </div>
+        </div>
+        <div id="repoDetailVisibility" class="visibility-badge">Public</div>
+        <p id="repoDetailDescription" class="detail-description">—</p>
+        <div class="detail-grid">
+          <div><span>Branch</span><strong id="repoDetailBranch">—</strong></div>
+          <div><span>Language</span><strong id="repoDetailLanguage">—</strong></div>
+          <div><span>Stars</span><strong id="repoDetailStars">—</strong></div>
+          <div><span>Forks</span><strong id="repoDetailForks">—</strong></div>
+          <div><span>Issues</span><strong id="repoDetailIssues">—</strong></div>
+          <div><span>Updated</span><strong id="repoDetailUpdated">—</strong></div>
+        </div>
+        <a id="repoDetailLink" class="github-link" href="#" target="_blank" rel="noopener noreferrer">Open on GitHub</a>
       </section>
     </section>
 
