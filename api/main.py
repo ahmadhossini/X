@@ -9,9 +9,11 @@ from api.github_connect import router as github_connect_router
 from api.github_webhook import router as github_webhook_router
 from api.miniapp import router as miniapp_router
 from api.miniapp_connect import router as miniapp_connect_router
+from api.payments import router as payments_router
 from database.session import init_db
 
 app = FastAPI(title="XAI Code Agent API", version="2.0.0")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -24,6 +26,7 @@ app.include_router(github_connect_router)
 app.include_router(github_webhook_router)
 app.include_router(miniapp_router)
 app.include_router(miniapp_connect_router)
+app.include_router(payments_router)
 app.mount("/dashboard", StaticFiles(directory="dashboard", html=True), name="dashboard")
 
 
