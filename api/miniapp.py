@@ -155,26 +155,45 @@ async def repos(
     if not installation:
         raise HTTPException(status_code=409, detail="GitHub not connected")
     try:
-        data = await github_app_get(
-            "/installation/repositories?per_page=100",
-            installation.installation_id,
-        )
+        repositories = []
+        for page in range(1, 11):
+            data = await github_app_get(
+                f"/installation/repositories?per_page=100&page={page}",
+                installation.installation_id,
+            )
+            page_items = data.get("repositories", [])
+            repositories.extend(page_items)
+            if len(page_items) < 100:
+                break
     except GitHubAppError:
         raise HTTPException(status_code=502, detail="GitHub is temporarily unavailable")
+
     repositories = [
         {
             "id": repo.get("id"),
+            "name": repo.get("name"),
             "full_name": repo.get("full_name"),
+            "html_url": repo.get("html_url"),
+            "description": repo.get("description"),
             "private": bool(repo.get("private")),
             "default_branch": (repo.get("default_branch") or "main"),
             "owner_login": (repo.get("owner") or {}).get("login"),
             "owner_avatar_url": (repo.get("owner") or {}).get("avatar_url"),
             "visibility": "private" if repo.get("private") else "public",
+            "language": repo.get("language"),
+            "stargazers_count": repo.get("stargazers_count", 0),
+            "forks_count": repo.get("forks_count", 0),
+            "open_issues_count": repo.get("open_issues_count", 0),
+            "updated_at": repo.get("updated_at"),
         }
-        for repo in data.get("repositories", [])
+        for repo in repositories
         if repo.get("full_name")
     ]
-    return {"repositories": repositories[:100]}
+    repositories.sort(
+        key=lambda repo: repo.get("updated_at") or "",
+        reverse=True,
+    )
+    return {"repositories": repositories}
 
 
 @router.post("/task")
