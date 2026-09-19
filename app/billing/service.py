@@ -17,48 +17,40 @@ class BillingServiceError(RuntimeError):
     pass
 
 
-def create_pro_payment(db: Session, user_id: int) -> TonPaymentIntent:
-    if "pro" not in PLANS:
-        raise BillingServiceError("Pro plan is not configured")
-    existing = db.scalar(
-        select(Payment).where(Payment.user_id == user_id, Payment.plan == "pro", Payment.status == "pending")
-        .order_by(Payment.created_at.desc())
-    )
+def _price_for_plan(plan_key: str) -> int:
+    if plan_key == "pro":
+        return settings.ton_pro_price_nano_ton
+    if plan_key == "team":
+        return settings.ton_team_price_nano_ton
+    raise BillingServiceError(f"Unsupported paid plan: {plan_key}")
+
+
+def create_plan_payment(db: Session, user_id: int, plan_key: str) -> TonPaymentIntent:
+    plan = PLANS.get(plan_key)
+    if plan is None or plan_key == "free":
+        raise BillingServiceError("Paid plan is not configured")
+
+    amount = _price_for_plan(plan_key)
+    existing = db.scalar(select(Payment).where(Payment.user_id == user_id, Payment.plan == plan_key, Payment.status == "pending").order_by(Payment.created_at.desc()))
     if existing is not None:
-        return TonPaymentIntent(
-            payment_id=existing.id,
-            amount_nano_ton=existing.amount_nano_ton,
-            destination=existing.destination,
-            memo=existing.memo,
-        )
+        return TonPaymentIntent(payment_id=existing.id, amount_nano_ton=existing.amount_nano_ton, destination=existing.destination, memo=existing.memo)
+
     payment_id = uuid4().hex
-    intent = TonPaymentService(settings.ton_wallet_address).create_intent(
-        payment_id,
-        settings.ton_pro_price_nano_ton,
-    )
-    db.add(
-        Payment(
-            id=payment_id,
-            user_id=user_id,
-            plan="pro",
-            amount_nano_ton=intent.amount_nano_ton,
-            destination=intent.destination,
-            memo=intent.memo,
-            status="pending",
-        )
-    )
+    intent = TonPaymentService(settings.ton_wallet_address).create_intent(payment_id, amount)
+    db.add(Payment(id=payment_id, user_id=user_id, plan=plan_key, amount_nano_ton=intent.amount_nano_ton, destination=intent.destination, memo=intent.memo, status="pending"))
     db.commit()
     return intent
+
+
+def create_pro_payment(db: Session, user_id: int) -> TonPaymentIntent:
+    return create_plan_payment(db, user_id, "pro")
 
 
 def confirm_verified_payment(db: Session, payment_id: str, tx_hash: str) -> None:
     tx_hash = tx_hash.strip()
     if not tx_hash:
         raise BillingServiceError("Transaction hash is required")
-
-    payment = db.scalar(
-        select(Payment).where(Payment.id == payment_id).with_for_update()
-    )
+    payment = db.scalar(select(Payment).where(Payment.id == payment_id).with_for_update())
     if payment is None:
         raise BillingServiceError("Payment not found")
     if payment.status == "confirmed":
@@ -67,19 +59,10 @@ def confirm_verified_payment(db: Session, payment_id: str, tx_hash: str) -> None
         return
     if payment.status != "pending":
         raise BillingServiceError("Payment is not pending")
-
-    duplicate = db.scalar(
-        select(Payment).where(Payment.tx_hash == tx_hash, Payment.id != payment_id)
-    )
+    duplicate = db.scalar(select(Payment).where(Payment.tx_hash == tx_hash, Payment.id != payment_id))
     if duplicate is not None:
         raise BillingServiceError("Transaction was already used")
-
     payment.tx_hash = tx_hash
     payment.status = "confirmed"
     payment.confirmed_at = datetime.now(timezone.utc)
-    activate_plan(
-        db,
-        payment.user_id,
-        payment.plan,
-        datetime.now(timezone.utc) + timedelta(days=30),
-    )
+    activate_plan(db, payment.user_id, payment.plan, datetime.now(timezone.utc) + timedelta(days=30))
