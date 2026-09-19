@@ -49,6 +49,8 @@ services:
         value: "5"
       - key: PRO_MONTHLY_CREDITS
         value: "500"
+      - key: TEAM_MONTHLY_CREDITS
+        value: "2000"
       - key: CODE_AGENT_WORKERS
         value: "4"
       - key: CODE_AGENT_QUEUE_SIZE
