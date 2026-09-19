@@ -9,10 +9,9 @@ from api.github_connect import router as github_connect_router
 from api.github_webhook import router as github_webhook_router
 from api.miniapp import router as miniapp_router
 from api.miniapp_connect import router as miniapp_connect_router
-from code_agent.routes import router as code_agent_router
 from database.session import init_db
 
-app = FastAPI(title="XAI Code Agent API", version="1.1.0")
+app = FastAPI(title="XAI Code Agent API", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,7 +20,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(code_agent_router)
 app.include_router(github_connect_router)
 app.include_router(github_webhook_router)
 app.include_router(miniapp_router)
@@ -46,4 +44,4 @@ def miniapp() -> RedirectResponse:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "code_agent": "embedded", "github": "enabled"}
+    return {"status": "ok", "version": "2.0.0", "github": "enabled", "queue": "redis"}
