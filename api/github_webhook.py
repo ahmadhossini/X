@@ -5,10 +5,9 @@ import hmac
 import json
 
 from fastapi import APIRouter, Header, HTTPException, Request
-from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
 
-from app.events.bus import Event, EventBus
+from app.workers.queue import enqueue_github_event
 from core.config import settings
 from database.models import GitHubInstallation, WebhookEvent
 from database.session import SessionLocal
@@ -72,10 +71,13 @@ async def github_webhook(
                 ).update({"active": False})
                 db.commit()
 
-    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    payload["_delivery_id"] = x_github_delivery
     try:
-        await EventBus(redis).publish(Event(topic=f"github.{event}", payload=payload))
-    finally:
-        await redis.aclose()
+        await enqueue_github_event(payload)
+    except Exception:
+        with SessionLocal() as db:
+            db.query(WebhookEvent).filter(WebhookEvent.delivery_id == x_github_delivery).update({"processed": False})
+            db.commit()
+        raise HTTPException(status_code=503, detail="Event queue is unavailable")
 
     return {"status": "queued", "event": event}
