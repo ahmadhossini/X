@@ -20,15 +20,16 @@ router = APIRouter(prefix="/api/miniapp", tags=["miniapp"])
 INIT_DATA_MAX_AGE_SECONDS = 24 * 60 * 60
 SUPPORTED_LANGUAGES = {"fa", "en", "hi"}
 
+
 class TaskRequest(BaseModel):
     repository: str = Field(min_length=1, max_length=255)
     request: str = Field(min_length=3, max_length=4000)
     language: str | None = Field(default=None, max_length=8)
 
+
 class LanguageRequest(BaseModel):
     language: str = Field(min_length=2, max_length=8)
 
-# existing auth helpers are preserved
 
 def _telegram_user(init_data: str) -> dict:
     pairs = dict(parse_qsl(init_data, keep_blank_values=True))
@@ -59,29 +60,89 @@ def _auth_user(init_data):
             db.refresh(user)
         return user
 
+
 @router.get("/me")
 async def me(authorization: str | None = Header(default=None), x_telegram_init_data: str | None = Header(default=None)):
     user = _auth_user(_init_data(authorization, x_telegram_init_data))
-    return {"telegram_id": user.telegram_id, "language": user.language, "plan": user.plan, "credits": user.credits, "ton_pro_price_ton": settings.ton_pro_price_nano_ton / 1_000_000_000}
+    with SessionLocal() as db:
+        installation = db.scalar(select(GitHubInstallation).where(GitHubInstallation.user_id == user.id, GitHubInstallation.active.is_(True)).order_by(GitHubInstallation.updated_at.desc()))
+    github_connected = installation is not None
+    github_login = None
+    github_avatar_url = None
+    if installation:
+        try:
+            installation_data = await github_app_get_installation(installation.installation_id)
+            account = installation_data.get("account") or {}
+            github_login = account.get("login") or installation.github_login
+            github_avatar_url = account.get("avatar_url")
+        except GitHubAppError:
+            github_login = installation.github_login
+    return {
+        "telegram_id": user.telegram_id,
+        "language": user.language,
+        "plan": user.plan,
+        "credits": user.credits,
+        "github_connected": github_connected,
+        "github_login": github_login,
+        "github_avatar_url": github_avatar_url,
+        "ton_pro_price_ton": settings.ton_pro_price_nano_ton / 1_000_000_000,
+        "ton_team_price_ton": settings.ton_team_price_nano_ton / 1_000_000_000,
+        "pro_price_usd": 12,
+        "team_price_usd": 29,
+    }
+
 
 @router.get("/repos")
 async def repos(authorization: str | None = Header(default=None), x_telegram_init_data: str | None = Header(default=None)):
     user = _auth_user(_init_data(authorization, x_telegram_init_data))
     with SessionLocal() as db:
-        installation = db.scalar(select(GitHubInstallation).where(GitHubInstallation.user_id == user.id, GitHubInstallation.active.is_(True)))
+        installation = db.scalar(select(GitHubInstallation).where(GitHubInstallation.user_id == user.id, GitHubInstallation.active.is_(True)).order_by(GitHubInstallation.updated_at.desc()))
     if not installation:
         raise HTTPException(409, "GitHub not connected")
-    data = await github_app_get("/installation/repositories?per_page=100", installation.installation_id)
-    return {"repositories": data.get("repositories", [])}
+    repositories: list[dict] = []
+    try:
+        for page in range(1, 11):
+            data = await github_app_get(f"/installation/repositories?per_page=100&page={page}", installation.installation_id)
+            page_items = data.get("repositories", [])
+            if not isinstance(page_items, list):
+                raise GitHubAppError("GitHub returned an invalid repositories response")
+            repositories.extend(item for item in page_items if isinstance(item, dict))
+            if len(page_items) < 100:
+                break
+    except GitHubAppError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    normalized = [{
+        "id": repo.get("id"),
+        "name": repo.get("name"),
+        "full_name": repo.get("full_name"),
+        "html_url": repo.get("html_url"),
+        "description": repo.get("description"),
+        "private": bool(repo.get("private")),
+        "default_branch": repo.get("default_branch") or "main",
+        "owner_login": (repo.get("owner") or {}).get("login"),
+        "owner_avatar_url": (repo.get("owner") or {}).get("avatar_url"),
+        "visibility": "private" if repo.get("private") else "public",
+        "language": repo.get("language"),
+        "stargazers_count": repo.get("stargazers_count", 0),
+        "forks_count": repo.get("forks_count", 0),
+        "open_issues_count": repo.get("open_issues_count", 0),
+        "updated_at": repo.get("updated_at"),
+    } for repo in repositories if repo.get("full_name")]
+    normalized.sort(key=lambda repo: repo.get("updated_at") or "", reverse=True)
+    return {"repositories": normalized}
+
 
 @router.post("/language")
 def language(payload: LanguageRequest, authorization: str | None = Header(default=None), x_telegram_init_data: str | None = Header(default=None)):
     user = _auth_user(_init_data(authorization, x_telegram_init_data))
+    if payload.language not in SUPPORTED_LANGUAGES:
+        raise HTTPException(400, "Unsupported language")
     with SessionLocal() as db:
         current = db.scalar(select(User).where(User.id == user.id))
         current.language = payload.language
         db.commit()
     return {"language": payload.language}
+
 
 @router.post("/task")
 def task(payload: TaskRequest, authorization: str | None = Header(default=None), x_telegram_init_data: str | None = Header(default=None)):
@@ -91,6 +152,7 @@ def task(payload: TaskRequest, authorization: str | None = Header(default=None),
     except BillingError as exc:
         raise HTTPException(402, str(exc))
     return {"task_id": reservation.task_id, "status": "queued"}
+
 
 @router.get("/task/{task_id}")
 def task_status(task_id: str, authorization: str | None = Header(default=None), x_telegram_init_data: str | None = Header(default=None)):
