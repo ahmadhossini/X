@@ -13,6 +13,7 @@ from billing.service import BillingError, ensure_user_credit_state, estimate_tas
 from bot.locales import t
 from code_agent.github_app import github_app_get
 from core.config import settings
+from bot.telegram_polling_lock import TelegramPollingLock
 from database.models import GitHubInstallation, User
 from database.session import SessionLocal
 
