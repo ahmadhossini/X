@@ -4,7 +4,7 @@
   const initData=tg?.initData||'';
   let lang=localStorage.getItem('xai_lang')||'fa',me=null,repos=[],activeRepo=null;
   const copy={
-    fa:{dir:'rtl',home:'خانه',repos:'مخزن‌ها',sub:'اشتراک',ready:'آماده',loading:'در حال بارگذاری...',connected:'GitHub متصل است',notConnected:'GitHub متصل نیست',welcome:'به XAI Code Agent خوش آمدید',welcomeText:'وضعیت حساب، مخزن‌ها و اشتراک خود را مدیریت کنید.',connect:'اتصال GitHub',plan:'پلن',credits:'اعتبار',repoCount:'مخزن‌ها',current:'پلن فعلی',freeText:'دسترسی پایه برای شروع کار.',monthly:'اعتبار ماهانه',pro:'ارتقا به Pro',proText:'اعتبار بیشتر برای استفاده از Agent و پروژه‌های بیشتر.',required:'ابتدا GitHub را وصل کنید.',payment:'پرداخت ایجاد شد. انتقال TON را از کیف پول خود انجام دهید.',failed:'خطا: ',public:'عمومی',private:'خصوصی',publicRepos:'مخزن‌های عمومی',privateRepos:'مخزن‌های خصوصی',noPublic:'مخزن عمومی وجود ندارد.',noPrivate:'مخزن خصوصی وجود ندارد.',branch:'شاخه',language:'زبان',stars:'ستاره',forks:'Fork',issues:'Issue',updated:'آخرین تغییر',openGithub:'باز کردن در GitHub',noDescription:'توضیحی برای این مخزن ثبت نشده است.'},
+    fa:{dir:'rtl',home:'خانه',repos:'مخزن‌ها',sub:'اشتراک',ready:'آماده',loading:'در حال بارگذاری...',connected:'GitHub متصل است',notConnected:'GitHub متصل نیست',welcome:'به XAI Code Agent خوش آمدید',welcomeText:'وضعیت حساب، مخزن‌ها و اشتراک خود را مدیریت کنید.',connect:'اتصال GitHub',plan:'پلن',credits:'اعتبار',repoCount:'مخزن‌ها',current:'پلن فعلی',freeText:'دسترسی پایه برای شروع کار.',monthly:'اعتبار ماهانه',pro:'ارتقا به Pro',proText:'اعتبار بیشتر برای استفاده از Agent و پروژه‌های بیشتر.',required:'ابتدا GitHub را وصل کنید.',payment:'پرداخت ایجاد شد. کیف پول TON را باز کنید و پرداخت را تأیید کنید.',checking:'در حال بررسی تراکنش روی شبکه TON...',confirmed:'پرداخت تأیید شد و اشتراک Pro فعال شد.',pending:'پرداخت هنوز در بلاکچین تأیید نشده است.',failed:'خطا: ',public:'عمومی',private:'خصوصی',publicRepos:'مخزن‌های عمومی',privateRepos:'مخزن‌های خصوصی',noPublic:'مخزن عمومی وجود ندارد.',noPrivate:'مخزن خصوصی وجود ندارد.',branch:'شاخه',language:'زبان',stars:'ستاره',forks:'Fork',issues:'Issue',updated:'آخرین تغییر',openGithub:'باز کردن در GitHub',noDescription:'توضیحی برای این مخزن ثبت نشده است.'},
     en:{dir:'ltr',home:'Home',repos:'Repositories',sub:'Subscription',ready:'Ready',loading:'Loading...',connected:'GitHub connected',notConnected:'GitHub not connected',welcome:'Welcome to XAI Code Agent',welcomeText:'Manage your account, repositories, and subscription.',connect:'Connect GitHub',plan:'Plan',credits:'Credits',repoCount:'Repositories',current:'Current plan',freeText:'Basic access to get started.',monthly:'Monthly credits',pro:'Upgrade to Pro',proText:'More credits for Agent usage and larger projects.',required:'Connect GitHub first.',payment:'Payment created. Open your TON wallet and confirm the payment.',checking:'Checking the transaction on the TON blockchain...',confirmed:'Payment confirmed and Pro subscription activated.',pending:'The payment is not confirmed on the blockchain yet.',failed:'Error: ',public:'Public',private:'Private',publicRepos:'Public repositories',privateRepos:'Private repositories',noPublic:'No public repositories.',noPrivate:'No private repositories.',branch:'Branch',language:'Language',stars:'Stars',forks:'Forks',issues:'Issues',updated:'Updated',openGithub:'Open on GitHub',noDescription:'No description for this repository.'},
     hi:{dir:'ltr',home:'होम',repos:'Repositories',sub:'सब्सक्रिप्शन',ready:'तैयार',loading:'लोड हो रहा है...',connected:'GitHub कनेक्ट है',notConnected:'GitHub कनेक्ट नहीं है',welcome:'XAI Code Agent में आपका स्वागत है',welcomeText:'अपना अकाउंट, repositories और subscription प्रबंधित करें।',connect:'GitHub कनेक्ट करें',plan:'प्लान',credits:'क्रेडिट',repoCount:'Repositories',current:'वर्तमान प्लान',freeText:'शुरू करने के लिए बेसिक एक्सेस।',monthly:'मासिक क्रेडिट',pro:'Pro में अपग्रेड करें',proText:'Agent और बड़े प्रोजेक्ट्स के लिए अधिक क्रेडिट।',required:'पहले GitHub कनेक्ट करें।',payment:'Payment बनाया गया। अपने TON wallet से transfer पूरा करें।',failed:'त्रुटि: ',public:'Public',private:'Private',publicRepos:'Public repositories',privateRepos:'Private repositories',noPublic:'कोई public repository नहीं है।',noPrivate:'कोई private repository नहीं है।',branch:'Branch',language:'Language',stars:'Stars',forks:'Forks',issues:'Issues',updated:'Updated',openGithub:'GitHub पर खोलें',noDescription:'इस repository के लिए कोई description नहीं है।'}
   };
@@ -79,7 +79,7 @@
     if(attempt>=30){box.textContent=c().pending;return}
     try{
       const result=await api('/api/payments/ton/pro/verify',{method:'POST',body:JSON.stringify({payment_id:paymentId})});
-      if(result.confirmed){box.textContent=c().confirmed;await loadMe();return}
+      if(result.confirmed){localStorage.removeItem('xai_pending_payment');box.textContent=c().confirmed;await loadMe();return}
       box.textContent=c().checking;
     }catch(e){box.textContent=c().failed+e.message;return}
     setTimeout(()=>verifyPayment(paymentId,attempt+1),4000);
@@ -88,10 +88,12 @@
     const box=$('paymentResult');box.hidden=false;box.textContent=c().loading;
     try{
       const d=await api('/api/payments/ton/pro',{method:'POST'});
+      localStorage.setItem('xai_pending_payment',d.payment_id);
+      $('proPrice').textContent=`${d.amount_ton} TON`;
       box.textContent=c().payment;
       if(d.uri)location.href=d.uri;
       setTimeout(()=>verifyPayment(d.payment_id),5000);
     }catch(e){box.textContent=c().failed+e.message}
   });
-  render();loadMe();
+  render();loadMe().then(()=>{const pending=localStorage.getItem('xai_pending_payment');if(pending){$('paymentResult').hidden=false;verifyPayment(pending)}});
 })();
