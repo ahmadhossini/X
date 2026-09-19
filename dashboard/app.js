@@ -19,14 +19,14 @@
     $('planLabel').textContent=x.plan;$('creditsLabel').textContent=x.credits;$('repoCountLabel').textContent=x.repoCount;
     $('reposTitle').textContent=x.repos;$('currentPlanLabel').textContent=x.current;$('currentPlanText').textContent=x.freeText;$('subCreditsLabel').textContent=x.monthly;
     $('proTitle').textContent='Pro';$('proText').textContent=x.proText;$('proBtn').textContent=x.pro;
-    $('profileName').textContent=me?.name||'—';$('profileUsername').textContent=me?.username?('@'+me.username):'—';
+    $('profileName').textContent=me?.name||'—';$('profileUsername').textContent=me?.github_login?('@'+me.github_login):'—';
     $('plan').textContent=me?.plan||'—';$('credits').textContent=me?.credits??'—';$('subCredits').textContent=me?.credits??'—';$('repoCount').textContent=repos.length||'0';
-    if(me?.avatar_url){$('avatar').src=me.avatar_url;$('avatar').style.display='block'}else $('avatar').style.display='none';
+    if(me?.github_avatar_url){$('avatar').src=me.github_avatar_url;$('avatar').style.display='block'}else $('avatar').style.display='none';
   }
   function showRepos(items){
     repos=items||[];const box=$('repos');box.innerHTML='';
     if(!repos.length){box.innerHTML='<div class="empty">'+c().required+'</div>';render();return}
-    repos.forEach(repo=>{const row=document.createElement('div');row.className='repo';const icon=document.createElement('div');icon.className='repo-icon';icon.textContent=(repo.name||repo.full_name||'?').slice(0,1).toUpperCase();const info=document.createElement('div');info.className='repo-info';const name=document.createElement('strong');name.textContent=repo.name||repo.full_name||'Repository';const meta=document.createElement('span');meta.textContent=repo.full_name||repo.visibility||'';info.append(name,meta);row.append(icon,info);box.appendChild(row)})
+    repos.forEach(repo=>{const row=document.createElement('div');row.className='repo';const icon=repo.owner_avatar_url?document.createElement('img'):document.createElement('div');icon.className='repo-icon';if(repo.owner_avatar_url){icon.src=repo.owner_avatar_url;icon.alt=repo.owner_login||''}else{icon.textContent=(repo.name||repo.full_name||'?').slice(0,1).toUpperCase()}const info=document.createElement('div');info.className='repo-info';const name=document.createElement('strong');name.textContent=repo.name||repo.full_name||'Repository';const meta=document.createElement('span');meta.textContent=(repo.owner_login?'@'+repo.owner_login+' · ':'')+(repo.full_name||repo.visibility||'');info.append(name,meta);row.append(icon,info);box.appendChild(row)})
     render()
   }
   async function loadMe(){if(!initData){$('status').textContent='Open this page inside Telegram.';return}try{me=await api('/api/miniapp/me');if(me.language&&copy[me.language]){lang=me.language;localStorage.setItem('xai_lang',lang)}render();if(me.github_connected)await loadRepos()}catch(e){$('status').textContent=e.message}}
