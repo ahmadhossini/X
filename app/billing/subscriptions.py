@@ -29,9 +29,12 @@ def activate_plan(db: Session, user_id: int, plan_key: str, expires_at: datetime
     if user is None:
         raise ValueError("User not found")
     subscription = get_or_create_subscription(db, user_id)
+    now = utcnow()
+    if plan_key != "free" and subscription.plan == plan_key and subscription.status == "active" and subscription.expires_at and subscription.expires_at > now and expires_at:
+        expires_at = subscription.expires_at + (expires_at - now)
     subscription.plan = plan_key
     subscription.status = "active"
-    subscription.starts_at = utcnow()
+    subscription.starts_at = now
     subscription.expires_at = expires_at
     user.plan = plan_key
     user.credits = PLANS[plan_key].monthly_credits
