@@ -36,3 +36,24 @@ def test_enqueue_coding_task_treats_duplicate_as_success(monkeypatch):
     pool = _FakePool(None)
     monkeypatch.setattr(task_queue, "get_pool", _pool_factory(pool))
     assert asyncio.run(task_queue.enqueue_coding_task("abc123")) == "task:abc123"
+
+
+from app.workers.github_events import _workflow_run_fields
+
+
+def test_workflow_run_fields_extract_ci_identity():
+    payload = {
+        "repository": {"full_name": "goodahmad001o-lang/X"},
+        "installation": {"id": 157669002},
+        "workflow_run": {
+            "id": 12345,
+            "head_sha": "abc123",
+            "status": "completed",
+            "conclusion": "success",
+            "html_url": "https://github.com/goodahmad001o-lang/X/actions/runs/12345",
+        },
+    }
+    assert _workflow_run_fields(payload) == (
+        "goodahmad001o-lang/X", "abc123", "completed", "success", 12345,
+        "https://github.com/goodahmad001o-lang/X/actions/runs/12345", 157669002,
+    )
