@@ -15,7 +15,7 @@ from database.models import Task, WebhookEvent
 from database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
-STALE_TASK_LEASE = timedelta(hours=1)
+STALE_TASK_LEASE = timedelta(minutes=20)
 ACTIVE_TASK_STATUSES = ("running", "planning", "branch_created", "committed", "pr_created", "changes_applied")
 
 
