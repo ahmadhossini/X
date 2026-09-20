@@ -10,7 +10,7 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from billing.service import BillingError, estimate_task_credits, reserve_task_credits
+from app.workers.queue import enqueue_coding_task\nfrom billing.service import BillingError, estimate_task_credits, reserve_task_credits
 from code_agent.github_app import GitHubAppError, github_app_get, github_app_get_installation
 from core.config import settings
 from database.models import GitHubInstallation, Task, User
@@ -145,12 +145,18 @@ def language(payload: LanguageRequest, authorization: str | None = Header(defaul
 
 
 @router.post("/task")
-def task(payload: TaskRequest, authorization: str | None = Header(default=None), x_telegram_init_data: str | None = Header(default=None)):
+async def task(payload: TaskRequest, authorization: str | None = Header(default=None), x_telegram_init_data: str | None = Header(default=None)):
     user = _auth_user(_init_data(authorization, x_telegram_init_data))
     try:
         reservation = reserve_task_credits(user.telegram_id, payload.repository, payload.request, estimate_task_credits(payload.request), model=settings.gemini_model, chat_id=user.telegram_id, language=payload.language or user.language)
     except BillingError as exc:
         raise HTTPException(402, str(exc))
+    try:
+        await enqueue_coding_task(reservation.task_id)
+    except Exception as exc:
+        # Keep the durable DB task queued: the worker reconciliation loop will
+        # retry enqueueing it without double-charging the user.
+        raise HTTPException(503, "Task queue is temporarily unavailable") from exc
     return {"task_id": reservation.task_id, "status": "queued"}
 
 
