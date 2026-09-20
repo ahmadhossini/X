@@ -79,6 +79,7 @@ async def github_webhook(
                 db.commit()
 
     payload["_delivery_id"] = x_github_delivery
+    payload["_event_type"] = event
     try:
         await enqueue_github_event(payload)
     except Exception:
