@@ -11,7 +11,8 @@ from telebot import TeleBot
 
 from api.main import app
 from bot.main import build_bot
-from bot.task_queue import worker_loop\nfrom bot.telegram_polling_lock import TelegramPollingLock
+from bot.task_queue import worker_loop
+from bot.telegram_polling_lock import TelegramPollingLock
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
