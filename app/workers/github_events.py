@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from datetime import datetime, timezone
 
-from database.models import GitHubInstallation
+from database.models import GitHubInstallation, Task
 from database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
