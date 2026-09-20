@@ -18,19 +18,26 @@ async def get_pool() -> ArqRedis:
     return _pool
 
 
-async def enqueue_github_event(payload: dict) -> str:
+async def _enqueue(function: str, job_id: str, *args: object) -> str:
     pool = await get_pool()
-    delivery_id = str(payload.get("_delivery_id") or "")
-    job = await pool.enqueue_job(
-        "process_github_event",
-        payload,
-        _job_id=f"github:{delivery_id}" if delivery_id else None,
-    )
+    job = await pool.enqueue_job(function, *args, _job_id=job_id)
     if job is None:
-        if delivery_id:
-            return f"github:{delivery_id}"
-        raise RuntimeError("GitHub event job was rejected")
+        return job_id
     return job.job_id
+
+
+async def enqueue_github_event(payload: dict) -> str:
+    delivery_id = str(payload.get("_delivery_id") or "")
+    if not delivery_id:
+        raise RuntimeError("GitHub event delivery id is required")
+    return await _enqueue("process_github_event", f"github:{delivery_id}", payload)
+
+
+async def enqueue_coding_task(task_id: str) -> str:
+    task_id = str(task_id or "")
+    if not task_id:
+        raise RuntimeError("Coding task id is required")
+    return await _enqueue("process_coding_task", f"task:{task_id}", task_id)
 
 
 async def close_pool() -> None:
