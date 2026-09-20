@@ -13,6 +13,7 @@ from api.main import app
 from bot.main import build_bot
 from bot.task_queue import worker_loop
 from bot.telegram_polling_lock import TelegramPollingLock
+from core.config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -58,15 +59,18 @@ def start_bot() -> None:
             logger.info("Telegram polling lock released")
 
 
-def start_task_worker() -> None:
-    """Keep the persistent worker alive if an unexpected worker error occurs."""
+def start_task_worker(worker_index: int) -> None:
+    """Keep one database-backed task worker alive."""
     restart_delay = 2.0
     while not _stop_event.is_set():
         try:
             worker_loop(_stop_event)
             return
         except Exception:
-            logger.exception("Persistent task worker crashed; restarting")
+            logger.exception(
+                "Persistent task worker crashed; restarting worker=%s",
+                worker_index,
+            )
             if _stop_event.wait(restart_delay):
                 return
             restart_delay = min(restart_delay * 2, 30.0)
@@ -94,12 +98,21 @@ if __name__ == "__main__":
     )
     bot_thread.start()
 
-    task_worker_thread = threading.Thread(
-        target=start_task_worker,
-        name="persistent-task-worker",
-        daemon=True,
+    worker_threads: list[threading.Thread] = []
+    for worker_index in range(settings.code_agent_workers):
+        thread = threading.Thread(
+            target=start_task_worker,
+            args=(worker_index,),
+            name=f"persistent-task-worker-{worker_index}",
+            daemon=True,
+        )
+        thread.start()
+        worker_threads.append(thread)
+
+    logger.info(
+        "Started %s database-backed coding-agent workers",
+        len(worker_threads),
     )
-    task_worker_thread.start()
 
     port = int(os.getenv("PORT", "10000"))
     uvicorn.run(app, host="0.0.0.0", port=port)
