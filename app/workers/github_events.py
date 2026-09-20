@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
+from datetime import datetime, timezone
 
 from database.models import GitHubInstallation
 from database.session import SessionLocal
@@ -35,13 +36,41 @@ async def _handle_pull_request(payload: dict[str, Any]) -> None:
 
 async def _handle_workflow_run(payload: dict[str, Any]) -> None:
     repository = (payload.get("repository") or {}).get("full_name")
-    action = payload.get("action") or "unknown"
-    workflow = (payload.get("workflow_run") or {}).get("name")
+    action = str(payload.get("action") or "unknown")
+    workflow_run = payload.get("workflow_run") or {}
+    workflow = workflow_run.get("name")
+    head_sha = str(workflow_run.get("head_sha") or "")
+    status = str(workflow_run.get("status") or "") or None
+    conclusion = str(workflow_run.get("conclusion") or "") or None
+    run_id = workflow_run.get("id")
+    run_url = workflow_run.get("html_url")
+    installation_id = (payload.get("installation") or {}).get("id")
+
+    if repository and head_sha and installation_id:
+        with SessionLocal() as db:
+            tasks = list(
+                db.query(Task)
+                .filter(Task.repository == repository)
+                .filter(Task.installation_id == int(installation_id))
+                .filter(Task.commit_sha == head_sha)
+                .all()
+            )
+            for task in tasks:
+                task.ci_status = status
+                task.ci_conclusion = conclusion
+                task.ci_run_id = int(run_id) if run_id is not None else None
+                task.ci_url = str(run_url)[:1024] if run_url else None
+                task.ci_updated_at = datetime.now(timezone.utc)
+            if tasks:
+                db.commit()
+                logger.info(
+                    "Updated CI status for task(s) count=%s repository=%s commit=%s status=%s conclusion=%s",
+                    len(tasks), repository, head_sha[:12], status, conclusion,
+                )
+
     logger.info(
-        "GitHub workflow_run event received repository=%s action=%s workflow=%s",
-        repository,
-        action,
-        workflow,
+        "GitHub workflow_run event received repository=%s action=%s workflow=%s status=%s conclusion=%s",
+        repository, action, workflow, status, conclusion,
     )
 
 
