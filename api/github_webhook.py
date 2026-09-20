@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.workers.queue import enqueue_github_event
 from core.config import settings
-from database.models import GitHubInstallation, WebhookEvent
+from database.models import WebhookEvent
 from database.session import SessionLocal
 
 router = APIRouter(prefix="/api/github", tags=["github"])
@@ -63,11 +63,9 @@ async def github_webhook(
                 existing = db.query(WebhookEvent).filter(WebhookEvent.delivery_id == x_github_delivery).first()
                 if existing and existing.processed:
                     return {"status": "duplicate", "event": event}
-        else:
-            existing.payload = json.dumps(payload, separators=(",", ":"))
-            existing.event_type = event
-            existing.processed = False
-            db.commit()
+        # An unprocessed delivery may already have a job in Redis. Keep the
+        # durable event record unchanged and let ARQ's deterministic job id
+        # enforce queue-level deduplication.
     payload["_delivery_id"] = x_github_delivery
     payload["_event_type"] = event
     try:
