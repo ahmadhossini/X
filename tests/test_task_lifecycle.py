@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -26,7 +27,7 @@ def db(monkeypatch):
         # Use a paid-plan fixture so the lifecycle tests can control the
         # starting balance directly. Free users intentionally reset to their
         # daily allowance before a reservation.
-        user = User(telegram_id=12345, language="fa", plan="pro", credits=20)
+        user = User(telegram_id=12345, language="fa", plan="pro", credits=20, credits_reset_at=datetime.now(timezone.utc) + timedelta(days=1))
         session.add(user)
         session.flush()
         installation = GitHubInstallation(
