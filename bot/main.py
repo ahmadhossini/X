@@ -8,7 +8,7 @@ from sqlalchemy import select
 from telebot import TeleBot, types
 from telebot.types import CallbackQuery, Message
 
-from api.github_connect import create_connect_state
+from api.github_connect import create_connect_state\nfrom app.workers.queue import enqueue_coding_task
 from billing.service import BillingError, ensure_user_credit_state, estimate_task_credits, reserve_task_credits
 from bot.locales import t
 from code_agent.github_app import github_app_get
