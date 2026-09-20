@@ -167,4 +167,11 @@ def task_status(task_id: str, authorization: str | None = Header(default=None), 
         task = db.scalar(select(Task).where(Task.id == task_id, Task.user_id == user.id))
     if not task:
         raise HTTPException(404, "Task not found")
-    return {"task_id": task.id, "status": task.status}
+    return {
+        "task_id": task.id,
+        "status": task.status,
+        "ci_status": task.ci_status,
+        "ci_conclusion": task.ci_conclusion,
+        "ci_run_id": task.ci_run_id,
+        "ci_url": task.ci_url,
+    }
