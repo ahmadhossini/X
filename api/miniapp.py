@@ -10,7 +10,8 @@ from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from app.workers.queue import enqueue_coding_task\nfrom billing.service import BillingError, estimate_task_credits, reserve_task_credits
+from app.workers.queue import enqueue_coding_task
+from billing.service import BillingError, estimate_task_credits, reserve_task_credits
 from code_agent.github_app import GitHubAppError, github_app_get, github_app_get_installation
 from core.config import settings
 from database.models import GitHubInstallation, Task, User
