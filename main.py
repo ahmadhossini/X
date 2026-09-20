@@ -11,7 +11,7 @@ from telebot import TeleBot
 
 from api.main import app
 from bot.main import build_bot
-from bot.task_queue import worker_loop
+from bot.task_queue import worker_loop\nfrom bot.telegram_polling_lock import TelegramPollingLock
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,7 +31,11 @@ def start_bot() -> None:
             return
         _bot_running = True
 
+    polling_lock = TelegramPollingLock()
     try:
+        if not polling_lock.acquire():
+            logger.error("Another XAI Code Agent instance already owns the Telegram polling lock")
+            return
         logger.info("Telegram bot starting")
         _telegram_bot = build_bot()
         logger.info("Telegram bot polling started")
@@ -40,6 +44,7 @@ def start_bot() -> None:
         logger.exception("Telegram bot stopped")
         raise
     finally:
+        polling_lock.release()
         _bot_running = False
 
 
