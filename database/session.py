@@ -74,6 +74,19 @@ def init_db() -> None:
             )
 
     timestamp_type = "DATETIME" if _is_sqlite else "TIMESTAMP WITH TIME ZONE"
+    task_columns = {column["name"] for column in inspector.get_columns("tasks")} if "tasks" in table_names else set()
+    with engine.begin() as connection:
+        task_definitions = {
+            "ci_status": "VARCHAR(32) NULL",
+            "ci_conclusion": "VARCHAR(32) NULL",
+            "ci_run_id": "BIGINT NULL",
+            "ci_url": "VARCHAR(1024) NULL",
+            "ci_updated_at": f"{timestamp_type} NULL",
+        }
+        for name, definition in task_definitions.items():
+            if name not in task_columns:
+                connection.execute(text(f"ALTER TABLE tasks ADD COLUMN {name} {definition}"))
+
     table_columns = {
         table: {column["name"] for column in inspector.get_columns(table)}
         for table in ("subscriptions", "payments")
