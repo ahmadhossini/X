@@ -91,11 +91,6 @@ async def reconcile_coding_tasks(ctx: dict[str, Any]) -> None:
 
     if stale_ids:
         logger.warning("Requeued stale coding tasks count=%s", len(stale_ids))
-        for task_id in stale_ids:
-            try:
-                await enqueue_coding_task(task_id)
-            except Exception:
-                logger.exception("Failed to enqueue recovered coding task task_id=%s", task_id)
 
 
 async def process_github_event(ctx: dict[str, Any], payload: dict[str, Any]) -> None:
