@@ -12,6 +12,7 @@ from telebot import TeleBot
 from api.main import app
 from bot.main import build_bot
 from bot.task_queue import worker_loop
+from bot.telegram_polling_lock import TelegramPollingLock
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -31,8 +32,18 @@ def start_bot() -> None:
             return
         _bot_running = True
 
+    polling_lock = TelegramPollingLock()
+    acquired = False
     try:
         logger.info("Telegram bot starting")
+        acquired = polling_lock.acquire()
+        if not acquired:
+            logger.error(
+                "Telegram polling lock is already owned by another instance; "
+                "this instance will not start getUpdates."
+            )
+            return
+
         _telegram_bot = build_bot()
         logger.info("Telegram bot polling started")
         _telegram_bot.infinity_polling(skip_pending=True)
@@ -40,7 +51,11 @@ def start_bot() -> None:
         logger.exception("Telegram bot stopped")
         raise
     finally:
+        polling_lock.release()
+        _telegram_bot = None
         _bot_running = False
+        if acquired:
+            logger.info("Telegram polling lock released")
 
 
 def start_task_worker() -> None:
