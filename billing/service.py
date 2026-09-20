@@ -37,6 +37,14 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def _monthly_credits(plan_key: str) -> int:
     if plan_key == "free":
         return settings.free_monthly_credits
@@ -48,7 +56,8 @@ def _monthly_credits(plan_key: str) -> int:
 
 
 def _reset_credit_state(db, user: User, now: datetime) -> None:
-    if user.credits_reset_at is not None and user.credits_reset_at > now:
+    reset_at = _as_utc(user.credits_reset_at)
+    if reset_at is not None and reset_at > now:
         return
 
     if user.plan == "free":
@@ -68,10 +77,11 @@ def _reset_credit_state(db, user: User, now: datetime) -> None:
         user.credits_reset_at = now + timedelta(days=30)
         return
 
-    if subscription.status == "active" and subscription.expires_at and subscription.expires_at > now:
+    subscription_expires_at = _as_utc(subscription.expires_at)
+    if subscription.status == "active" and subscription_expires_at and subscription_expires_at > now:
         user.credits = _monthly_credits(user.plan)
         user.credits_reset_at = min(
-            subscription.expires_at,
+            subscription_expires_at,
             now + timedelta(days=30),
         )
         return
