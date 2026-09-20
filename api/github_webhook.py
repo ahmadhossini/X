@@ -68,16 +68,6 @@ async def github_webhook(
             existing.event_type = event
             existing.processed = False
             db.commit()
-        if event == "installation":
-            installation = payload.get("installation") or {}
-            installation_id = installation.get("id")
-            action = payload.get("action")
-            if installation_id and action in {"deleted", "suspend"}:
-                db.query(GitHubInstallation).filter(
-                    GitHubInstallation.installation_id == installation_id
-                ).update({"active": False})
-                db.commit()
-
     payload["_delivery_id"] = x_github_delivery
     payload["_event_type"] = event
     try:
