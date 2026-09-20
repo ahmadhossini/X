@@ -13,6 +13,23 @@ logger = logging.getLogger(__name__)
 EventHandler = Callable[[dict[str, Any]], Awaitable[None]]
 
 
+def _workflow_run_fields(payload: dict[str, Any]) -> tuple[str, str, str | None, str | None, int | None, str | None, int | None]:
+    repository = str((payload.get("repository") or {}).get("full_name") or "")
+    workflow_run = payload.get("workflow_run") or {}
+    head_sha = str(workflow_run.get("head_sha") or "")
+    status = str(workflow_run.get("status") or "") or None
+    conclusion = str(workflow_run.get("conclusion") or "") or None
+    run_id = workflow_run.get("id")
+    run_url = workflow_run.get("html_url")
+    installation_id = (payload.get("installation") or {}).get("id")
+    return (
+        repository, head_sha, status, conclusion,
+        int(run_id) if run_id is not None else None,
+        str(run_url) if run_url else None,
+        int(installation_id) if installation_id is not None else None,
+    )
+
+
 async def _handle_ping(payload: dict[str, Any]) -> None:
     logger.info("GitHub ping event received")
 
@@ -35,16 +52,9 @@ async def _handle_pull_request(payload: dict[str, Any]) -> None:
 
 
 async def _handle_workflow_run(payload: dict[str, Any]) -> None:
-    repository = (payload.get("repository") or {}).get("full_name")
+    repository, head_sha, status, conclusion, run_id, run_url, installation_id = _workflow_run_fields(payload)
     action = str(payload.get("action") or "unknown")
-    workflow_run = payload.get("workflow_run") or {}
-    workflow = workflow_run.get("name")
-    head_sha = str(workflow_run.get("head_sha") or "")
-    status = str(workflow_run.get("status") or "") or None
-    conclusion = str(workflow_run.get("conclusion") or "") or None
-    run_id = workflow_run.get("id")
-    run_url = workflow_run.get("html_url")
-    installation_id = (payload.get("installation") or {}).get("id")
+    workflow = (payload.get("workflow_run") or {}).get("name")
 
     if repository and head_sha and installation_id:
         with SessionLocal() as db:
