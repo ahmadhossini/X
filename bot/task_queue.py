@@ -126,6 +126,18 @@ def _notify(task: Task, success: bool, result: dict | None = None) -> None:
             text = f"Code changes are ready.\nRepository: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
         if pr_url:
             text += f"\nPR: {pr_url}"
+        ci = result.get("ci") or {}
+        ci_status = ci.get("status")
+        if ci_status and ci_status != "unavailable":
+            if lang == "fa":
+                ci_text = {"passed": "موفق", "failed": "ناموفق", "pending": "در حال اجرا", "no_checks": "CI تنظیم نشده"}.get(ci_status, ci_status)
+                text += f"\nCI: {ci_text}"
+            elif lang == "hi":
+                ci_text = {"passed": "सफल", "failed": "विफल", "pending": "चल रहा है", "no_checks": "CI सेट नहीं है"}.get(ci_status, ci_status)
+                text += f"\nCI: {ci_text}"
+            else:
+                ci_text = {"passed": "passed", "failed": "failed", "pending": "pending", "no_checks": "not configured"}.get(ci_status, ci_status)
+                text += f"\nCI: {ci_text}"
     else:
         if lang == "fa":
             text = "اجرای کار ناموفق بود و اعتبار رزرو‌شده برگردانده شد."
