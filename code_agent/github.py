@@ -234,6 +234,76 @@ class GitHubRepo:
                 raise first_error
         return new_commit["sha"]
 
+    async def ci_status(self, commit_sha: str) -> dict[str, Any]:
+        """Return a best-effort snapshot of GitHub commit checks/statuses.
+
+        The GitHub App may not have Checks/Actions read permission yet, so
+        check-runs are optional. Commit statuses remain useful for projects
+        whose CI publishes status contexts.
+        """
+        await self._authorize_repository()
+        statuses_data = await self._request("GET", f"/commits/{quote(commit_sha, safe='')}/status")
+        state = str(statuses_data.get("state") or "pending") if isinstance(statuses_data, dict) else "pending"
+        contexts = statuses_data.get("statuses", []) if isinstance(statuses_data, dict) else []
+        if not isinstance(contexts, list):
+            contexts = []
+
+        checks: list[dict[str, Any]] = []
+        checks_available = True
+        try:
+            checks_data = await self._request("GET", f"/commits/{quote(commit_sha, safe='')}/check-runs")
+            raw_checks = checks_data.get("check_runs", []) if isinstance(checks_data, dict) else []
+            if isinstance(raw_checks, list):
+                checks = [item for item in raw_checks if isinstance(item, dict)]
+        except GitHubRepoError as exc:
+            # A missing Checks permission must not make an otherwise valid PR
+            # fail. The caller can still use commit statuses.
+            if "GitHub API 403" in str(exc):
+                checks_available = False
+            else:
+                raise
+
+        failed = 0
+        pending = 0
+        successful = 0
+        for check in checks:
+            conclusion = str(check.get("conclusion") or "").lower()
+            status = str(check.get("status") or "").lower()
+            if conclusion in {"failure", "cancelled", "timed_out", "action_required", "startup_failure"}:
+                failed += 1
+            elif conclusion in {"success", "neutral", "skipped"}:
+                successful += 1
+            elif status not in {"completed"}:
+                pending += 1
+
+        for status_item in contexts:
+            status_value = str((status_item or {}).get("state") or "pending").lower() if isinstance(status_item, dict) else "pending"
+            if status_value == "success":
+                successful += 1
+            elif status_value in {"failure", "error"}:
+                failed += 1
+            else:
+                pending += 1
+
+        if failed:
+            overall = "failed"
+        elif pending:
+            overall = "pending"
+        elif successful:
+            overall = "passed"
+        else:
+            overall = "no_checks"
+
+        return {
+            "status": overall,
+            "commit_state": state,
+            "checks_available": checks_available,
+            "successful": successful,
+            "failed": failed,
+            "pending": pending,
+            "total": len(checks) + len(contexts),
+        }
+
     async def pull_request(self, branch: str, base: str, title: str, body: str) -> dict[str, Any]:
         await self._authorize_repository()
         owner = self.full_name.split("/", 1)[0]
