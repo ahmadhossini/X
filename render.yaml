@@ -4,6 +4,7 @@ services:
     runtime: python
     buildCommand: pip install -r requirements.txt
     startCommand: python main.py
+    healthCheckPath: /health
     envVars:
       - key: BOT_TOKEN
         sync: false
@@ -29,5 +30,9 @@ services:
         sync: false
       - key: TELEGRAM_ADMIN_IDS
         sync: false
+      - key: CODE_AGENT_WORKERS
+        value: "2"
+      - key: CODE_AGENT_QUEUE_SIZE
+        value: "100"
       - key: DATABASE_URL
         sync: false
