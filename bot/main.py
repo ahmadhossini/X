@@ -127,6 +127,31 @@ def _language_prompt() -> str:
     return "Choose your language / अपनी भाषा चुनें / زبان خود را انتخاب کنید:"
 
 
+def _parse_task_target(raw: str, repositories: list[str]) -> tuple[str | None, str | None]:
+    """Resolve /task input without relying on a single-repository installation."""
+    text = raw.strip()
+    if not text:
+        return None, None
+
+    if "|" in text:
+        repo_text, request = text.split("|", 1)
+        repository = repo_text.strip()
+        request = request.strip()
+    elif len(repositories) == 1:
+        repository = repositories[0]
+        request = text
+    else:
+        return None, None
+
+    if len(request) < 3 or request.startswith("/"):
+        return None, None
+
+    target = next((repo for repo in repositories if repo.casefold() == repository.casefold()), None)
+    if target is None:
+        return None, None
+    return target, request
+
+
 def build_bot() -> TeleBot:
     token = os.getenv("BOT_TOKEN", "")
     if not token:
@@ -266,23 +291,19 @@ def build_bot() -> TeleBot:
             bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(user_id, language))
             return
 
-        request = (message.text or "")[len("/task"):].strip()
-        if len(request) < 3 or request.startswith("/"):
-            bot.reply_to(message, t(language, "task_format"), reply_markup=_main_keyboard(language))
-            return
-
+        raw_request = (message.text or "")[len("/task"):].strip()
         try:
             data = _run_async(github_app_get, "/installation/repositories?per_page=100", installation.installation_id)
             repositories = [repo.get("full_name") for repo in data.get("repositories", []) if repo.get("full_name")]
         except Exception:
-            logger.exception("Failed to resolve default repository for task")
+            logger.exception("Failed to resolve repositories for task")
             bot.reply_to(message, t(language, "github_error"), reply_markup=_main_keyboard(language))
             return
 
-        if len(repositories) != 1:
-            bot.reply_to(message, t(language, "task_choose_repo", count=len(repositories)), reply_markup=_main_keyboard(language))
+        repository, request = _parse_task_target(raw_request, repositories)
+        if not repository or not request:
+            bot.reply_to(message, t(language, "task_format"), reply_markup=_main_keyboard(language))
             return
-        repository = repositories[0]
 
         estimated_credits = estimate_task_credits(request)
         try:

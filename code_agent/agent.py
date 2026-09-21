@@ -229,6 +229,10 @@ async def execute_task(
                         "url": pr.get("html_url"),
                         "draft": pr.get("draft", True),
                     }
+                    try:
+                        result["ci"] = await repo.ci_status(result["commit"])
+                    except GitHubRepoError as exc:
+                        result["ci"] = {"status": "unavailable", "error": str(exc)[:300]}
                 return result
 
         context = await build_context(repo, base)
@@ -261,6 +265,10 @@ async def execute_task(
                 "url": pr.get("html_url"),
                 "draft": pr.get("draft", True),
             }
+            try:
+                result["ci"] = await repo.ci_status(result["commit"])
+            except GitHubRepoError as exc:
+                result["ci"] = {"status": "unavailable", "error": str(exc)[:300]}
         return result
     finally:
         await repo.aclose()
