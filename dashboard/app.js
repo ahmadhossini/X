@@ -9,6 +9,7 @@
     hi:{dir:'ltr',home:'होम',repos:'Repositories',sub:'सब्सक्रिप्शन',ready:'तैयार',loading:'लोड हो रहा है...',connected:'GitHub कनेक्ट है',notConnected:'GitHub कनेक्ट नहीं है',welcome:'XAI Code Agent में आपका स्वागत है',welcomeText:'अपना अकाउंट, repositories और subscription प्रबंधित करें।',connect:'GitHub कनेक्ट करें',plan:'प्लान',credits:'क्रेडिट',repoCount:'Repositories',current:'वर्तमान प्लान',freeText:'शुरू करने के लिए बेसिक एक्सेस।',monthly:'मासिक क्रेडिट',pro:'Pro में अपग्रेड करें',proText:'Agent और बड़े प्रोजेक्ट्स के लिए अधिक क्रेडिट।',required:'पहले GitHub कनेक्ट करें।',payment:'Payment बनाया गया। अपने TON wallet से transfer पूरा करें।',failed:'त्रुटि: ',public:'Public',private:'Private',publicRepos:'Public repositories',privateRepos:'Private repositories',noPublic:'कोई public repository नहीं है।',noPrivate:'कोई private repository नहीं है।',branch:'Branch',language:'Language',stars:'Stars',forks:'Forks',issues:'Issues',updated:'Updated',openGithub:'GitHub पर खोलें',noDescription:'इस repository के लिए कोई description नहीं है।'}
   };
   const c=()=>copy[lang]||copy.fa;
+  const formatTonPrice=(value,usd)=>Number.isFinite(Number(value))&&Number(value)>0?`${Number(value).toLocaleString(undefined,{maximumFractionDigits:9})} TON · ${usd}`:`${usd} · — TON`;
   const headers=()=>({'Content-Type':'application/json','Authorization':`tma ${initData}`});
   async function api(path,options={}){const r=await fetch(path,{...options,headers:{...headers(),...(options.headers||{})}});let d={};try{d=await r.json()}catch(_){}if(!r.ok)throw new Error(d.detail||`HTTP ${r.status}`);return d}
   function render(){
@@ -19,7 +20,7 @@
     $('welcomeTitle').textContent=x.welcome;$('welcomeText').textContent=x.welcomeText;$('connectBtn').textContent=x.connect;
     $('planLabel').textContent=x.plan;$('creditsLabel').textContent=x.credits;$('repoCountLabel').textContent=x.repoCount;
     $('reposTitle').textContent=x.repos;$('currentPlanLabel').textContent=x.current;$('currentPlanText').textContent=x.freeText;$('subCreditsLabel').textContent=x.monthly;
-    $('proTitle').textContent='Pro';$('proText').textContent=x.proText;$('proBtn').textContent=x.pro;$('proPrice').textContent=me?.ton_pro_price_ton?`${me.ton_pro_price_ton} TON · ${me.pro_price_usd}`:'$12 · — TON';$('teamTitle').textContent='Team';$('teamText').textContent=x.teamText;$('teamBtn').textContent=x.team;$('teamPrice').textContent=me?.ton_team_price_ton?`${me.ton_team_price_ton} TON · ${me.team_price_usd}`:'$29 · — TON';
+    $('proTitle').textContent='Pro';$('proText').textContent=x.proText;$('proBtn').textContent=x.pro;$('proPrice').textContent=formatTonPrice(me?.ton_pro_price_ton,me?.pro_price_usd??12);$('teamTitle').textContent='Team';$('teamText').textContent=x.teamText;$('teamBtn').textContent=x.team;$('teamPrice').textContent=formatTonPrice(me?.ton_team_price_ton,me?.team_price_usd??29);
     $('profileName').textContent=me?.github_login||'—';$('profileUsername').textContent=me?.github_login?('@'+me.github_login):'—';
     $('plan').textContent=me?.plan||'—';$('credits').textContent=me?.credits??'—';$('subCredits').textContent=me?.credits??'—';$('repoCount').textContent=repos.length||'0';
     if(me?.github_avatar_url){$('avatar').src=me.github_avatar_url;$('avatar').style.display='block'}else $('avatar').style.display='none';
@@ -93,7 +94,7 @@
     try{
       const d=await api(`/api/payments/ton/${plan}`,{method:'POST'});
       localStorage.setItem(key,d.payment_id);
-      price.textContent=`${d.amount_ton} TON · ${plan==='team'?29:12}`;
+      price.textContent=formatTonPrice(d.amount_ton,plan==='team'?29:12);
       box.textContent=c().payment;
       if(d.uri)location.href=d.uri;
       setTimeout(()=>verifyPayment(plan,d.payment_id),5000);
