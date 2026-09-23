@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 from sqlalchemy import select
 
+from app.billing.plans import PLANS
 from core.config import settings
 from database.models import GitHubInstallation, Task, UsageRecord, User
 from database.session import SessionLocal
@@ -18,6 +19,36 @@ class BillingError(RuntimeError):
 @dataclass(frozen=True)
 class TaskReservation:
     task_id: str
+    remaining: int
+
+
+def _monthly_credits(plan: str) -> int:
+    if plan == "free":
+        return settings.free_monthly_credits
+    if plan == "pro":
+        return settings.pro_monthly_credits
+    if plan == "team":
+        return settings.team_monthly_credits
+    return PLANS["free"].monthly_credits
+
+
+def ensure_user_credit_state(telegram_id: int) -> tuple[int, str]:
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
+        if user is None:
+            raise BillingError("User not found")
+
+        now = datetime.now(timezone.utc)
+        plan = user.plan if user.plan in PLANS else "free"
+        if user.plan != plan:
+            user.plan = plan
+
+        if user.credits_reset_at is None or user.credits_reset_at <= now:
+            user.credits = _monthly_credits(plan)
+            user.credits_reset_at = now + timedelta(days=30)
+            db.commit()
+
+        return user.credits, plan
 
 
 def estimate_task_credits(request: str) -> int:
@@ -32,6 +63,7 @@ def reserve_task_credits(
     request: str,
     credits: int,
     *,
+    installation_id: int | None = None,
     model: str,
     chat_id: int | None = None,
     language: str = "en",
@@ -46,7 +78,13 @@ def reserve_task_credits(
         if user is None:
             raise BillingError("User not found")
 
-        installation = db.scalar(
+        now = datetime.now(timezone.utc)
+        plan = user.plan if user.plan in PLANS else "free"
+        if user.credits_reset_at is None or user.credits_reset_at <= now:
+            user.credits = _monthly_credits(plan)
+            user.credits_reset_at = now + timedelta(days=30)
+
+        installation_query = (
             select(GitHubInstallation)
             .where(
                 GitHubInstallation.user_id == user.id,
@@ -54,8 +92,39 @@ def reserve_task_credits(
             )
             .order_by(GitHubInstallation.updated_at.desc())
         )
+        installation = db.scalar(installation_query)
         if installation is None:
             raise BillingError("GitHub not connected")
+        if installation_id is not None and installation.installation_id != installation_id:
+            owned = db.scalar(
+                select(GitHubInstallation).where(
+                    GitHubInstallation.user_id == user.id,
+                    GitHubInstallation.installation_id == installation_id,
+                    GitHubInstallation.active.is_(True),
+                )
+            )
+            if owned is None:
+                raise BillingError("GitHub not connected")
+            installation = owned
+
+        active = db.scalar(
+            select(Task).where(
+                Task.user_id == user.id,
+                Task.status.in_(
+                    (
+                        "queued",
+                        "running",
+                        "planning",
+                        "branch_created",
+                        "changes_applied",
+                        "committed",
+                        "pr_created",
+                    )
+                ),
+            )
+        )
+        if active is not None:
+            raise BillingError("Active task already exists")
 
         if user.credits < credits:
             raise BillingError("Insufficient credits")
@@ -90,4 +159,79 @@ def reserve_task_credits(
         )
         db.commit()
 
-    return TaskReservation(task_id=task_id)
+        return TaskReservation(task_id=task_id, remaining=user.credits)
+
+
+def transition_task(
+    task_id: str,
+    from_status: str,
+    to_status: str,
+    *,
+    branch: str | None = None,
+    commit_sha: str | None = None,
+    pull_request_number: int | None = None,
+) -> bool:
+    with SessionLocal() as db:
+        task = db.scalar(
+            select(Task).where(Task.id == task_id).with_for_update()
+        )
+        if task is None or task.status != from_status:
+            return False
+
+        task.status = to_status
+        if branch is not None:
+            task.branch = branch
+        if commit_sha is not None:
+            task.commit_sha = commit_sha
+        if pull_request_number is not None:
+            task.pull_request_number = pull_request_number
+        db.commit()
+        return True
+
+
+def complete_task(task_id: str, model: str) -> None:
+    with SessionLocal() as db:
+        task = db.scalar(select(Task).where(Task.id == task_id).with_for_update())
+        if task is None:
+            raise BillingError("Task not found")
+
+        task.status = "completed"
+        task.completed_at = datetime.now(timezone.utc)
+
+        usage = db.scalar(
+            select(UsageRecord).where(UsageRecord.task_id == task_id).with_for_update()
+        )
+        if usage is not None:
+            usage.model = model
+            usage.credits_used = usage.credits_reserved
+            usage.status = "completed"
+
+        db.commit()
+
+
+def fail_task(task_id: str, model: str, error: str, *, refund: bool) -> None:
+    with SessionLocal() as db:
+        task = db.scalar(select(Task).where(Task.id == task_id).with_for_update())
+        if task is None:
+            return
+
+        task.status = "failed"
+        task.error = error[:4000]
+        task.completed_at = datetime.now(timezone.utc)
+
+        usage = db.scalar(
+            select(UsageRecord).where(UsageRecord.task_id == task_id).with_for_update()
+        )
+        if usage is not None:
+            usage.model = model
+            if refund:
+                task_user = db.scalar(
+                    select(User).where(User.id == task.user_id).with_for_update()
+                )
+                if task_user is not None:
+                    task_user.credits += max(0, usage.credits_reserved - usage.credits_used)
+                usage.status = "refunded"
+            else:
+                usage.status = "failed"
+
+        db.commit()
