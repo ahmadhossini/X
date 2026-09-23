@@ -49,12 +49,22 @@ def create_plan_payment(db: Session, user_id: int, plan_key: str) -> TonPaymentI
         .limit(1)
     )
     if existing is not None:
-        return TonPaymentIntent(
-            payment_id=existing.id,
-            amount_nano_ton=existing.amount_nano_ton,
-            destination=existing.destination,
-            memo=existing.memo,
-        )
+        # Never reuse a malformed or stale invoice. In particular, invoices
+        # created before TON_WALLET_ADDRESS was configured may have an empty
+        # destination and would otherwise make URI generation fail with 500.
+        if (
+            existing.amount_nano_ton == amount
+            and existing.destination.strip() == settings.ton_wallet_address
+            and existing.memo.strip()
+        ):
+            return TonPaymentIntent(
+                payment_id=existing.id,
+                amount_nano_ton=existing.amount_nano_ton,
+                destination=existing.destination,
+                memo=existing.memo,
+            )
+        existing.status = "expired"
+        db.flush()
 
     payment_id = uuid4().hex
     intent = TonPaymentService(settings.ton_wallet_address).create_intent(
