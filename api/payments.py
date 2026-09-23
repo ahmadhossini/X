@@ -36,18 +36,23 @@ def create_ton_pro_payment(
         except (BillingServiceError, ValueError, RuntimeError) as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+        try:
+            uri = TonPaymentService.to_transfer_uri(
+                intent.destination,
+                intent.amount_nano_ton,
+                intent.memo,
+                settings.ton_network,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     return {
         "payment_id": intent.payment_id,
         "amount_nano_ton": intent.amount_nano_ton,
         "amount_ton": intent.amount_nano_ton / 1_000_000_000,
         "destination": intent.destination,
         "memo": intent.memo,
-        "uri": TonPaymentService.to_transfer_uri(
-            intent.destination,
-            intent.amount_nano_ton,
-            intent.memo,
-            settings.ton_network,
-        ),
+        "uri": uri,
         "status": "pending",
     }
 
@@ -124,13 +129,23 @@ def create_ton_team_payment(
             intent = create_plan_payment(db, user.id, "team")
         except (BillingServiceError, ValueError, RuntimeError) as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        try:
+            uri = TonPaymentService.to_transfer_uri(
+                intent.destination,
+                intent.amount_nano_ton,
+                intent.memo,
+                settings.ton_network,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {
         "payment_id": intent.payment_id,
         "amount_nano_ton": intent.amount_nano_ton,
         "amount_ton": intent.amount_nano_ton / 1_000_000_000,
         "destination": intent.destination,
         "memo": intent.memo,
-        "uri": TonPaymentService.to_transfer_uri(intent.destination, intent.amount_nano_ton, intent.memo, settings.ton_network),
+        "uri": uri,
         "status": "pending",
     }
 
