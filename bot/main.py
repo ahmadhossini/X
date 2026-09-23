@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 
 from sqlalchemy import select
 from telebot import TeleBot, types
@@ -20,6 +21,7 @@ from database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
 SUPPORTED_LANGUAGES = {"en", "hi", "fa"}
+TASK_REPO_REQUEST_RE = re.compile(r"^(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\s*\|\s*(?P<request>.+)$", re.DOTALL)
 
 
 def _run_async(func, *args):
@@ -267,8 +269,16 @@ def build_bot() -> TeleBot:
             bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(user_id, language))
             return
 
-        request = (message.text or "")[len("/task"):].strip()
-        if len(request) < 3 or request.startswith("/"):
+        raw_task = (message.text or "")[len("/task"):].strip()
+        if len(raw_task) < 3 or raw_task.startswith("/"):
+            bot.reply_to(message, t(language, "task_format"), reply_markup=_main_keyboard(language))
+            return
+
+        explicit_match = TASK_REPO_REQUEST_RE.match(raw_task)
+        explicit_repository = explicit_match.group("repository") if explicit_match else None
+        request = explicit_match.group("request").strip() if explicit_match else raw_task
+
+        if len(request) < 3:
             bot.reply_to(message, t(language, "task_format"), reply_markup=_main_keyboard(language))
             return
 
@@ -276,14 +286,20 @@ def build_bot() -> TeleBot:
             data = _run_async(github_app_get, "/installation/repositories?per_page=100", installation.installation_id)
             repositories = [repo.get("full_name") for repo in data.get("repositories", []) if repo.get("full_name")]
         except Exception:
-            logger.exception("Failed to resolve default repository for task")
+            logger.exception("Failed to resolve repositories for task")
             bot.reply_to(message, t(language, "github_error"), reply_markup=_main_keyboard(language))
             return
 
-        if len(repositories) != 1:
+        if explicit_repository:
+            if explicit_repository not in repositories:
+                bot.reply_to(message, t(language, "invalid_repo"), reply_markup=_main_keyboard(language))
+                return
+            repository = explicit_repository
+        elif len(repositories) == 1:
+            repository = repositories[0]
+        else:
             bot.reply_to(message, t(language, "task_choose_repo", count=len(repositories)), reply_markup=_main_keyboard(language))
             return
-        repository = repositories[0]
 
         estimated_credits = estimate_task_credits(request)
         try:
