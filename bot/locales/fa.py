@@ -22,6 +22,7 @@ TEXTS = {
     "task_received": "درخواست دریافت شد. در حال تحلیل مخزن و آماده‌سازی تغییرات...",
     "task_received_with_cost": "درخواست دریافت شد. هزینه تخمینی: {credits} اعتبار. موجودی باقی‌مانده: {remaining} اعتبار.",
     "task_already_running": "یک وظیفه فعال برای شما وجود دارد. لطفاً تا پایان آن صبر کنید و سپس وظیفه دیگری ایجاد کنید.",
+    "task_choose_repo": "این وظیفه چند مخزن قابل دسترسی دارد ({count}). لطفاً از فرمت زیر استفاده کنید:\n/task owner/repo | request",
     "task_format": "فرمت:\n/task owner/repo | request",
     "invalid_repo": "مخزن یا درخواست نامعتبر است.",
     "no_changes": "تغییر امنی شناسایی نشد.\n{summary}",
