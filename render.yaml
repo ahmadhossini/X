@@ -40,7 +40,7 @@ services:
       - key: TON_PRO_PRICE_NANO_TON
         sync: false
       - key: TON_TEAM_PRICE_NANO_TON
-        sync: false
+        value: "10000000000"
       - key: TONCENTER_API_KEY
         sync: false
       - key: TON_NETWORK
