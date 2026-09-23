@@ -22,6 +22,7 @@ TEXTS = {
     "task_received": "अनुरोध मिल गया है। भंडार का विश्लेषण करके बदलाव तैयार किए जा रहे हैं...",
     "task_received_with_cost": "अनुरोध मिल गया है। अनुमानित लागत: {credits} क्रेडिट। शेष क्रेडिट: {remaining}।",
     "task_already_running": "आपका एक सक्रिय कार्य पहले से मौजूद है। नया कार्य बनाने से पहले उसके पूरा होने की प्रतीक्षा करें।",
+    "task_choose_repo": "इस खाते में {count} सुलभ रिपॉजिटरी हैं। कृपया इस प्रारूप का उपयोग करें:\n/task owner/repo | request",
     "task_format": "प्रारूप:\n/task owner/repo | request",
     "invalid_repo": "भंडार या अनुरोध मान्य नहीं है।",
     "no_changes": "कोई सुरक्षित बदलाव नहीं मिला।\n{summary}",
