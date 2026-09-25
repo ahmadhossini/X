@@ -2,8 +2,9 @@ runtime:
   image: python:3.12
 
 commands:
-  package: "pip install -r requirements.txt"
-  build: []
+  package: ""
+  build:
+    - "pip install -r requirements.txt"
   start: "python main.py"
 
 repository:
