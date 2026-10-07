@@ -55,6 +55,14 @@ services:
         value: "4"
       - key: CODE_AGENT_QUEUE_SIZE
         value: "1000"
+      - key: CODE_AGENT_JOB_TIMEOUT_SECONDS
+        value: "1800"
+      - key: CODE_AGENT_STALE_TASK_SECONDS
+        value: "2100"
+      - key: CODE_AGENT_JOB_TIMEOUT_SECONDS
+        value: "1800"
+      - key: CODE_AGENT_STALE_TASK_SECONDS
+        value: "2100"
 
   - type: worker
     name: xai-code-agent-worker
