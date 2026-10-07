@@ -10,12 +10,15 @@ from sqlalchemy import select
 
 from app.workers.github_events import route_github_event
 from app.workers.queue import enqueue_coding_task
-from bot.task_queue import _execute_claimed
+from code_agent.agent import AgentError, execute_task
+from code_agent.github_app import GitHubAppError
+from app.billing.service import complete_task, fail_task, transition_task
 from database.models import Task, WebhookEvent
 from database.session import SessionLocal
+from core.config import settings
 
 logger = logging.getLogger(__name__)
-STALE_TASK_LEASE = timedelta(minutes=20)
+STALE_TASK_LEASE = timedelta(seconds=settings.code_agent_stale_task_seconds)
 ACTIVE_TASK_STATUSES = ("running", "planning", "branch_created", "committed", "pr_created", "changes_applied")
 
 
@@ -46,7 +49,45 @@ async def process_coding_task(ctx: dict[str, Any], task_id: str) -> None:
     if task is None:
         logger.info("Coding task already claimed or completed task_id=%s", task_id)
         return
-    await asyncio.to_thread(_execute_claimed, task, worker_id)
+    def run() -> None:
+        if not transition_task(task.id, "running", "planning"):
+            logger.warning("Task state changed before execution task_id=%s", task.id)
+            return
+        side_effects_applied = False
+        try:
+            result = asyncio.run(execute_task(
+                settings.gemini_api_key,
+                settings.gemini_model,
+                task.repository,
+                task.request,
+                task.installation_id,
+                True,
+                task.language,
+                task.id,
+            ))
+            if result.get("status") == "no_changes":
+                fail_task(task.id, settings.gemini_model, "no_changes", refund=True)
+                return
+            side_effects_applied = bool(result.get("commit") or result.get("branch") or result.get("pull_request"))
+            branch = result.get("branch")
+            commit_sha = result.get("commit")
+            if not branch or not commit_sha:
+                raise AgentError("Agent did not return the required branch and commit")
+            if not transition_task(task.id, "planning", "branch_created", branch=branch):
+                raise AgentError("Task state changed while recording branch")
+            if not transition_task(task.id, "branch_created", "committed", commit_sha=commit_sha):
+                raise AgentError("Task state changed while recording commit")
+            pr_number = (result.get("pull_request") or {}).get("number")
+            if pr_number and not transition_task(task.id, "committed", "pr_created", pull_request_number=int(pr_number)):
+                raise AgentError("Task state changed while recording pull request")
+            complete_task(task.id, settings.gemini_model)
+        except (AgentError, GitHubAppError, RuntimeError) as exc:
+            logger.exception("Task failed task_id=%s", task.id)
+            fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not side_effects_applied)
+        except Exception as exc:
+            logger.exception("Unexpected task failure task_id=%s", task.id)
+            fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not side_effects_applied)
+    await asyncio.to_thread(run)
 
 
 async def reconcile_coding_tasks(ctx: dict[str, Any]) -> None:
