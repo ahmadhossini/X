@@ -32,6 +32,14 @@ def _monthly_credits(plan: str) -> int:
     return PLANS["free"].monthly_credits
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def ensure_user_credit_state(telegram_id: int) -> tuple[int, str]:
     with SessionLocal() as db:
         user = db.scalar(select(User).where(User.telegram_id == telegram_id).with_for_update())
@@ -43,7 +51,8 @@ def ensure_user_credit_state(telegram_id: int) -> tuple[int, str]:
         if user.plan != plan:
             user.plan = plan
 
-        if user.credits_reset_at is None or user.credits_reset_at <= now:
+        credits_reset_at = _as_utc(user.credits_reset_at)
+        if credits_reset_at is None or credits_reset_at <= now:
             user.credits = _monthly_credits(plan)
             user.credits_reset_at = now + timedelta(days=30)
             db.commit()
@@ -80,7 +89,8 @@ def reserve_task_credits(
 
         now = datetime.now(timezone.utc)
         plan = user.plan if user.plan in PLANS else "free"
-        if user.credits_reset_at is None or user.credits_reset_at <= now:
+        credits_reset_at = _as_utc(user.credits_reset_at)
+        if credits_reset_at is None or credits_reset_at <= now:
             user.credits = _monthly_credits(plan)
             user.credits_reset_at = now + timedelta(days=30)
 
