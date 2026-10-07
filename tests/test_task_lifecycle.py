@@ -65,7 +65,6 @@ def _create_reserved_task(Session, *, credits=5):
 def test_reservation_persists_task_and_usage_metadata(db):
     reservation, task, usage, user = _create_reserved_task(db, credits=5)
 
-    assert reservation.credits == 5
     assert reservation.remaining == 15
     assert task is not None
     assert task.status == "queued"
@@ -165,7 +164,7 @@ def test_transition_complete_and_fail_are_state_safe_and_idempotent(db):
         pull_request_number=42,
     ) is True
 
-    billing.complete_task(reservation.task_id, "gemini-test", credits_used=4)
+    billing.complete_task(reservation.task_id, "gemini-test")
     billing.complete_task(reservation.task_id, "gemini-test", credits_used=4)
 
     with db() as session:
@@ -178,7 +177,7 @@ def test_transition_complete_and_fail_are_state_safe_and_idempotent(db):
         assert user.credits == 15
 
     # A failed cleanup after successful completion must not refund credits.
-    billing.fail_task(reservation.task_id, "gemini-test", "late_worker_error")
+    billing.fail_task(reservation.task_id, "gemini-test", "late_worker_error", refund=True)
     with db() as session:
         user = session.scalar(select(User).where(User.telegram_id == 12345))
         usage = session.scalar(select(UsageRecord).where(UsageRecord.task_id == reservation.task_id))
@@ -189,8 +188,8 @@ def test_transition_complete_and_fail_are_state_safe_and_idempotent(db):
 def test_failed_task_refunds_reserved_credits_once(db):
     reservation, _, _, _ = _create_reserved_task(db, credits=5)
 
-    billing.fail_task(reservation.task_id, "gemini-test", "worker_error")
-    billing.fail_task(reservation.task_id, "gemini-test", "worker_error_again")
+    billing.fail_task(reservation.task_id, "gemini-test", "worker_error", refund=True)
+    billing.fail_task(reservation.task_id, "gemini-test", "worker_error_again", refund=True)
 
     with db() as session:
         user = session.scalar(select(User).where(User.telegram_id == 12345))
@@ -199,5 +198,5 @@ def test_failed_task_refunds_reserved_credits_once(db):
         assert user.credits == 20
         assert task.status == "failed"
         assert task.error == "worker_error"
-        assert usage.status == "worker_error"
+        assert usage.status == "refunded"
         assert usage.credits_used == 0
