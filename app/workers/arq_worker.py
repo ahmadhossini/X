@@ -14,5 +14,5 @@ class WorkerSettings:
     ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_jobs = settings.code_agent_workers
-    job_timeout = 600
+    job_timeout = settings.code_agent_job_timeout_seconds
     keep_result = 0
