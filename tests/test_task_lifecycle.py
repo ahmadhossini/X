@@ -165,7 +165,7 @@ def test_transition_complete_and_fail_are_state_safe_and_idempotent(db):
     ) is True
 
     billing.complete_task(reservation.task_id, "gemini-test")
-    billing.complete_task(reservation.task_id, "gemini-test", credits_used=4)
+    billing.complete_task(reservation.task_id, "gemini-test")
 
     with db() as session:
         task = session.get(Task, reservation.task_id)
