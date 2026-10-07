@@ -38,6 +38,8 @@ def create_plan_payment(db: Session, user_id: int, plan_key: str) -> TonPaymentI
         raise BillingServiceError("User not found")
 
     amount = _price_for_plan(plan_key)
+    if amount <= 0:
+        raise BillingServiceError(f"TON price is not configured for plan: {plan_key}")
     existing = db.scalar(
         select(Payment)
         .where(
