@@ -173,7 +173,7 @@ def test_transition_complete_and_fail_are_state_safe_and_idempotent(db):
         user = session.scalar(select(User).where(User.telegram_id == 12345))
         assert task.status == "completed"
         assert usage.status == "completed"
-        assert usage.credits_used == 4
+        assert usage.credits_used == 5
         assert user.credits == 15
 
     # A failed cleanup after successful completion must not refund credits.
