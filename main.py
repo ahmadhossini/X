@@ -58,9 +58,6 @@ def shutdown_handler(signum, frame) -> None:
     else:
         logger.warning("Telegram bot instance not found for graceful shutdown.")
 
-    worker = _arq_worker
-    loop = _arq_loop
-
 
 if __name__ == "__main__":
     signal.signal(signal.SIGTERM, shutdown_handler)
