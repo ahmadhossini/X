@@ -204,6 +204,8 @@ def complete_task(task_id: str, model: str) -> None:
         task = db.scalar(select(Task).where(Task.id == task_id).with_for_update())
         if task is None:
             raise BillingError("Task not found")
+        if task.status in ("completed", "failed"):
+            return
 
         task.status = "completed"
         task.completed_at = datetime.now(timezone.utc)
@@ -222,7 +224,7 @@ def complete_task(task_id: str, model: str) -> None:
 def fail_task(task_id: str, model: str, error: str, *, refund: bool) -> None:
     with SessionLocal() as db:
         task = db.scalar(select(Task).where(Task.id == task_id).with_for_update())
-        if task is None:
+        if task is None or task.status in ("completed", "failed"):
             return
 
         task.status = "failed"
