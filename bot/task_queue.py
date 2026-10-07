@@ -20,7 +20,7 @@ from database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
 
-CLAIM_LEASE_SECONDS = 60 * 60
+CLAIM_LEASE_SECONDS = settings.code_agent_stale_task_seconds
 HEARTBEAT_SECONDS = 30.0
 POLL_SECONDS = 1.0
 RECOVERY_CHECK_SECONDS = 60.0
