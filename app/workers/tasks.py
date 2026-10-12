@@ -12,7 +12,8 @@ from app.workers.github_events import route_github_event
 from app.workers.queue import enqueue_coding_task
 from code_agent.agent import AgentError, execute_task
 from code_agent.github_app import GitHubAppError
-from app.billing.service import complete_task, fail_task, transition_task
+from billing.service import complete_task, fail_task, transition_task
+from bot.task_queue import _notify
 from database.models import Task, WebhookEvent
 from database.session import SessionLocal
 from core.config import settings
@@ -67,6 +68,7 @@ async def process_coding_task(ctx: dict[str, Any], task_id: str) -> None:
             ))
             if result.get("status") == "no_changes":
                 fail_task(task.id, settings.gemini_model, "no_changes", refund=True)
+                _notify(task, False)
                 return
             side_effects_applied = bool(result.get("commit") or result.get("branch") or result.get("pull_request"))
             branch = result.get("branch")
@@ -81,12 +83,16 @@ async def process_coding_task(ctx: dict[str, Any], task_id: str) -> None:
             if pr_number and not transition_task(task.id, "committed", "pr_created", pull_request_number=int(pr_number)):
                 raise AgentError("Task state changed while recording pull request")
             complete_task(task.id, settings.gemini_model)
+            _notify(task, True, result=result)
+            logger.info("Task completed task_id=%s repository=%s", task.id, task.repository)
         except (AgentError, GitHubAppError, RuntimeError) as exc:
             logger.exception("Task failed task_id=%s", task.id)
             fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not side_effects_applied)
+            _notify(task, False)
         except Exception as exc:
             logger.exception("Unexpected task failure task_id=%s", task.id)
             fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not side_effects_applied)
+            _notify(task, False)
     await asyncio.to_thread(run)
 
 
