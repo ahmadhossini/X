@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import signal
+import subprocess
 import threading
 import time
 
@@ -20,6 +21,38 @@ _bot_running = False
 _stop_event = threading.Event()
 _bot_lock = threading.Lock()
 _telegram_bot: TeleBot | None = None
+
+
+def start_worker_process() -> subprocess.Popen:
+    """Run ARQ beside the API and Telegram bot in the same Railway service."""
+    logger.info("Starting ARQ worker process")
+    process = subprocess.Popen(
+        ["arq", "app.workers.arq_worker.WorkerSettings"],
+    )
+    # Fail fast if the worker immediately exits (for example, due to a bad
+    # import or missing configuration) instead of serving an API with a dead queue.
+    time.sleep(2)
+    return_code = process.poll()
+    if return_code is not None:
+        raise RuntimeError(
+            f"ARQ worker exited during startup with code {return_code}"
+        )
+    logger.info("ARQ worker process started (pid=%s)", process.pid)
+    return process
+
+
+def stop_worker_process(process: subprocess.Popen) -> None:
+    """Gracefully stop the ARQ child when Railway shuts down this container."""
+    if process.poll() is not None:
+        return
+    logger.info("Stopping ARQ worker process")
+    process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        logger.warning("ARQ worker did not stop in time; killing it")
+        process.kill()
+        process.wait(timeout=5)
 
 
 def start_bot() -> None:
@@ -63,12 +96,16 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
 
-    bot_thread = threading.Thread(
-        target=start_bot,
-        name="telegram-bot",
-        daemon=True,
-    )
-    bot_thread.start()
+    worker_process = start_worker_process()
+    try:
+        bot_thread = threading.Thread(
+            target=start_bot,
+            name="telegram-bot",
+            daemon=True,
+        )
+        bot_thread.start()
 
-    port = int(os.getenv("PORT", "10000"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+        port = int(os.getenv("PORT", "10000"))
+        uvicorn.run(app, host="0.0.0.0", port=port)
+    finally:
+        stop_worker_process(worker_process)
