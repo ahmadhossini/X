@@ -130,6 +130,21 @@ def _language_prompt() -> str:
     return "Choose your language / अपनी भाषा चुनें / زبان خود را انتخاب کنید:"
 
 
+def _enqueue_reserved_task(task_id: str) -> bool:
+    """Queue a persisted task; leave it queued if Redis is temporarily unavailable."""
+    try:
+        job_id = _run_async(enqueue_coding_task, task_id)
+    except Exception:
+        logger.exception(
+            "Failed to enqueue coding task; task remains queued for worker reconciliation task_id=%s",
+            task_id,
+        )
+        return False
+
+    logger.info("Coding task enqueued task_id=%s job_id=%s", task_id, job_id)
+    return True
+
+
 def build_bot() -> TeleBot:
     token = os.getenv("BOT_TOKEN", "")
     if not token:
@@ -324,6 +339,26 @@ def build_bot() -> TeleBot:
                 bot.reply_to(message, t(language, "task_already_running"), reply_markup=_main_keyboard(language))
             else:
                 bot.reply_to(message, t(language, "billing_error"), reply_markup=_main_keyboard(language))
+            return
+
+        if not _enqueue_reserved_task(reservation.task_id):
+            if language == "fa":
+                queue_message = (
+                    "درخواستت ثبت شده، اما صف اجرا فعلاً در دسترس نیست. "
+                    "اعتبار رزروشده دوباره کسر نمی‌شود؛ لطفاً درخواست را تکرار نکن. "
+                    "وقتی Worker و صف در دسترس باشند، وظیفه از وضعیت queued بازیابی می‌شود."
+                )
+            elif language == "hi":
+                queue_message = (
+                    "आपका अनुरोध सहेज लिया गया है, लेकिन कार्य कतार अभी उपलब्ध नहीं है। "
+                    "कृपया अनुरोध दोबारा न भेजें। Worker और कतार उपलब्ध होने पर कार्य फिर से उठाया जाएगा।"
+                )
+            else:
+                queue_message = (
+                    "Your request was saved, but the task queue is temporarily unavailable. "
+                    "Please do not submit it again. The queued task can be picked up when the worker and queue are available."
+                )
+            bot.reply_to(message, queue_message, reply_markup=_main_keyboard(language))
             return
 
         bot.reply_to(
