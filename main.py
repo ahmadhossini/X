@@ -65,8 +65,10 @@ def start_bot() -> None:
         _bot_running = True
 
     polling_lock = TelegramPollingLock()
+    lock_acquired = False
     try:
-        if not polling_lock.acquire():
+        lock_acquired = polling_lock.acquire()
+        if not lock_acquired:
             logger.error("Another XAI Code Agent instance already owns the Telegram polling lock")
             return
         logger.info("Telegram bot starting")
@@ -77,8 +79,30 @@ def start_bot() -> None:
         logger.exception("Telegram bot stopped")
         raise
     finally:
-        polling_lock.release()
+        if lock_acquired:
+            polling_lock.release()
         _bot_running = False
+
+
+def run_bot_supervisor() -> None:
+    """Restart the Telegram bot if startup or polling exits unexpectedly."""
+    delay = 2
+    while not _stop_event.is_set():
+        try:
+            start_bot()
+            if _stop_event.is_set():
+                break
+            # A normal return without shutdown is unexpected (e.g. lock failure
+            # or polling loop exit); retry instead of leaving the service botless.
+            logger.warning("Telegram bot exited unexpectedly; retrying in %s seconds", delay)
+        except Exception:
+            if _stop_event.is_set():
+                break
+            logger.exception("Telegram bot supervisor caught an unexpected failure; retrying in %s seconds", delay)
+
+        if _stop_event.wait(delay):
+            break
+        delay = min(delay * 2, 60)
 
 
 def shutdown_handler(signum, frame) -> None:
@@ -99,7 +123,7 @@ if __name__ == "__main__":
     worker_process = start_worker_process()
     try:
         bot_thread = threading.Thread(
-            target=start_bot,
+            target=run_bot_supervisor,
             name="telegram-bot",
             daemon=True,
         )
