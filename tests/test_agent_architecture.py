@@ -6,6 +6,14 @@ def test_safe_path_blocks_traversal_and_secrets():
     assert not _safe_path("../secrets.txt")
     assert not _safe_path(".env")
     assert not _safe_path("keys/private.pem")
+    assert not _safe_path("config/.env")
+    assert not _safe_path("config/.env.production")
+    assert not _safe_path("secrets/credentials.json")
+    assert not _safe_path("src/.github/workflows/ci.yml")
+    assert not _safe_path("config/id_ed25519")
+    assert not _safe_path("keys/cert.pfx")
+    assert not _safe_path("C:\\repo\\.env")
+    assert _safe_path("src/configuration.py")
     assert not _safe_path(".github/workflows/ci.yml")
 
 
