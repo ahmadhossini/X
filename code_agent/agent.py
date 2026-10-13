@@ -33,7 +33,7 @@ PROTECTED_ENV_NAMES = {".env", ".env.example"}
 
 def _safe_path(path: str) -> bool:
     """Reject traversal and sensitive paths at any depth, not only at repo root."""
-    if not isinstance(path, str) or not path or "\\x00" in path:
+    if not isinstance(path, str) or not path or "\x00" in path:
         return False
 
     normalized = path.replace("\\", "/")
@@ -59,7 +59,7 @@ def _safe_path(path: str) -> bool:
 
     filename = lowered_parts[-1]
     if filename in PROTECTED_ENV_NAMES or (
-        filename.startswith(".env.") or filename.startswith(".env-")
+        filename.startswith(".env")
     ):
         return False
     if filename in PROTECTED_FILENAMES or filename.endswith(PROTECTED_KEY_EXTENSIONS):
