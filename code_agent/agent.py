@@ -18,19 +18,53 @@ TEXT_EXTENSIONS = {".py", ".js", ".ts", ".tsx", ".jsx", ".json", ".md", ".yml", 
 MAX_CONTEXT_CHARS = 120_000
 MAX_CHANGED_FILES = 8
 MAX_FILE_CHARS = 300_000
-PROTECTED_PATHS = {".env", ".env.example", "credentials.json", "service-account.json"}
-PROTECTED_PREFIXES = (".git/", ".github/workflows/")
+PROTECTED_FILENAMES = {
+    "credentials.json",
+    "service-account.json",
+    "id_rsa",
+    "id_ed25519",
+    "id_ecdsa",
+    "id_dsa",
+}
+PROTECTED_KEY_EXTENSIONS = (".pem", ".key", ".p12", ".pfx")
+PROTECTED_DIRECTORY_NAMES = {".git", "secrets", "secret"}
+PROTECTED_ENV_NAMES = {".env", ".env.example"}
 
 
 def _safe_path(path: str) -> bool:
-    if not path or path.startswith("/"):
+    """Reject traversal and sensitive paths at any depth, not only at repo root."""
+    if not isinstance(path, str) or not path or "\\x00" in path:
         return False
-    normalized = path.replace("\\", "/").strip("/")
-    parts = normalized.split("/") if normalized else []
-    if not normalized or ".." in parts or normalized.startswith(PROTECTED_PREFIXES):
+
+    normalized = path.replace("\\", "/")
+    # Reject POSIX absolute paths and Windows drive/UNC paths before normalizing.
+    if normalized.startswith("/") or re.match(r"^[a-zA-Z]:", normalized):
         return False
-    if normalized in PROTECTED_PATHS or normalized.endswith((".pem", ".key")):
+
+    parts = normalized.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
         return False
+
+    lowered_parts = [part.casefold() for part in parts]
+    if any(part in PROTECTED_DIRECTORY_NAMES for part in lowered_parts):
+        return False
+
+    # Protect GitHub Actions workflows at any nesting level, and avoid reading
+    # repository-level metadata by matching path components rather than prefixes.
+    if any(
+        lowered_parts[i] == ".github" and lowered_parts[i + 1] == "workflows"
+        for i in range(len(lowered_parts) - 1)
+    ):
+        return False
+
+    filename = lowered_parts[-1]
+    if filename in PROTECTED_ENV_NAMES or (
+        filename.startswith(".env.") or filename.startswith(".env-")
+    ):
+        return False
+    if filename in PROTECTED_FILENAMES or filename.endswith(PROTECTED_KEY_EXTENSIONS):
+        return False
+
     return True
 
 
