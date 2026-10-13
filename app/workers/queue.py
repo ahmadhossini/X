@@ -1,29 +1,31 @@
 from __future__ import annotations
 
 from arq import create_pool
-from arq.connections import ArqRedis, RedisSettings
+from arq.connections import RedisSettings
 
 from core.config import settings
 
 
-_pool: ArqRedis | None = None
-
-
-async def get_pool() -> ArqRedis:
-    global _pool
-    if _pool is None:
-        if not settings.redis_url:
-            raise RuntimeError("REDIS_URL is required for the event queue")
-        _pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
-    return _pool
-
-
 async def _enqueue(function: str, job_id: str, *args: object) -> str:
-    pool = await get_pool()
-    job = await pool.enqueue_job(function, *args, _job_id=job_id)
-    if job is None:
-        return job_id
-    return job.job_id
+    """Enqueue using a pool owned by this call's event loop.
+
+    The Telegram bot runs async work on short-lived event loops, while FastAPI
+    has a long-lived loop. A module-global ARQ pool can therefore be reused
+    from a different loop (or after its original loop has closed), causing
+    errors such as "Event loop is closed". Keep the pool local and always
+    close it before returning.
+    """
+    if not settings.redis_url:
+        raise RuntimeError("REDIS_URL is required for the event queue")
+
+    pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+    try:
+        job = await pool.enqueue_job(function, *args, _job_id=job_id)
+        if job is None:
+            return job_id
+        return job.job_id
+    finally:
+        await pool.close()
 
 
 async def enqueue_github_event(payload: dict) -> str:
@@ -38,10 +40,3 @@ async def enqueue_coding_task(task_id: str) -> str:
     if not task_id:
         raise RuntimeError("Coding task id is required")
     return await _enqueue("process_coding_task", f"task:{task_id}", task_id)
-
-
-async def close_pool() -> None:
-    global _pool
-    if _pool is not None:
-        await _pool.close()
-        _pool = None
