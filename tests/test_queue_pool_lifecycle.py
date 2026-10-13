@@ -11,7 +11,7 @@ def test_enqueue_closes_its_pool_after_success():
         close=AsyncMock(),
     )
     with (
-        patch.object(queue.settings, "redis_url", "redis://localhost:6379/0"),
+        patch.object(queue, "settings", SimpleNamespace(redis_url="redis://localhost:6379/0")),
         patch.object(queue.RedisSettings, "from_dsn", return_value=object()),
         patch.object(queue, "create_pool", new=AsyncMock(return_value=pool)) as create_pool,
     ):
@@ -29,7 +29,7 @@ def test_enqueue_closes_its_pool_when_redis_enqueue_fails():
         close=AsyncMock(),
     )
     with (
-        patch.object(queue.settings, "redis_url", "redis://localhost:6379/0"),
+        patch.object(queue, "settings", SimpleNamespace(redis_url="redis://localhost:6379/0")),
         patch.object(queue.RedisSettings, "from_dsn", return_value=object()),
         patch.object(queue, "create_pool", new=AsyncMock(return_value=pool)),
     ):
