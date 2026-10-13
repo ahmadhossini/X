@@ -8,6 +8,16 @@ def test_safe_path_rejects_traversal_and_protected_files():
     assert not _safe_path(".github/workflows/deploy.yml")
     assert not _safe_path(".env")
     assert not _safe_path("keys/private.pem")
+    assert not _safe_path("config/.env")
+    assert not _safe_path("config/.env.production")
+    assert not _safe_path("secrets/credentials.json")
+    assert not _safe_path("src/.github/workflows/deploy.yml")
+    assert not _safe_path("config/id_rsa")
+    assert not _safe_path("config/token.p12")
+    assert not _safe_path("C:/repo/.env")
+    assert not _safe_path("config/../app.py")
+    assert _safe_path("src/configuration.py")
+    assert _safe_path("docs/README.md")
 
 
 def test_branch_name_is_stable_for_task_and_contains_request_digest():
