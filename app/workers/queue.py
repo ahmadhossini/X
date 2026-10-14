@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import logging
+
 from arq import create_pool
 from arq.connections import RedisSettings
 
 from core.config import settings
+
+
+logger = logging.getLogger(__name__)
 
 
 async def _enqueue(function: str, job_id: str, *args: object) -> str:
@@ -25,7 +30,13 @@ async def _enqueue(function: str, job_id: str, *args: object) -> str:
             return job_id
         return job.job_id
     finally:
-        await pool.close()
+        try:
+            await pool.close()
+        except Exception:
+            # Do not mask an enqueue error (or report failure after a job may
+            # already have been accepted by Redis). The failure remains visible
+            # in logs so pool cleanup problems can still be investigated.
+            logger.exception("Failed to close Redis queue pool")
 
 
 async def enqueue_github_event(payload: dict) -> str:
