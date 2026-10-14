@@ -15,8 +15,8 @@ from api.main import app
 from bot.main import build_bot
 from bot.telegram_polling_lock import TelegramPollingLock
 
-# Railway classifies stderr output as errors in some log views. Send standard
-# application logs to stdout and replace any earlier root-handler setup.
+# Railway may classify stderr output as errors in some log views. Keep standard
+# application logs on stdout and replace any earlier root-handler setup.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -27,18 +27,19 @@ logger = logging.getLogger(__name__)
 
 _bot_running = False
 _stop_event = threading.Event()
+_worker_stop_event = threading.Event()
 _bot_lock = threading.Lock()
+_worker_lock = threading.Lock()
 _telegram_bot: TeleBot | None = None
 
 
 def start_worker_process() -> subprocess.Popen:
-    """Run ARQ beside the API and Telegram bot in the same Railway service."""
+    """Start ARQ and fail fast if it cannot stay alive during startup."""
     logger.info("Starting ARQ worker process")
     process = subprocess.Popen(
         ["arq", "app.workers.arq_worker.WorkerSettings"],
     )
-    # Fail fast if the worker immediately exits (for example, due to a bad
-    # import or missing configuration) instead of serving an API with a dead queue.
+    # Catch import/configuration failures before the API starts serving requests.
     time.sleep(2)
     return_code = process.poll()
     if return_code is not None:
@@ -50,7 +51,7 @@ def start_worker_process() -> subprocess.Popen:
 
 
 def stop_worker_process(process: subprocess.Popen) -> None:
-    """Gracefully stop the ARQ child when Railway shuts down this container."""
+    """Gracefully stop the ARQ child when the service shuts down."""
     if process.poll() is not None:
         return
     logger.info("Stopping ARQ worker process")
@@ -61,6 +62,39 @@ def stop_worker_process(process: subprocess.Popen) -> None:
         logger.warning("ARQ worker did not stop in time; killing it")
         process.kill()
         process.wait(timeout=5)
+
+
+def run_worker_supervisor(process_holder: dict[str, subprocess.Popen]) -> None:
+    """Restart ARQ if it crashes after startup instead of leaving jobs unprocessed."""
+    delay = 2
+    while not _worker_stop_event.wait(5):
+        with _worker_lock:
+            process = process_holder["process"]
+        return_code = process.poll()
+        if return_code is None:
+            continue
+
+        logger.error(
+            "ARQ worker exited unexpectedly (code=%s); restarting",
+            return_code,
+        )
+        while not _worker_stop_event.is_set():
+            try:
+                replacement = start_worker_process()
+            except Exception:
+                logger.exception(
+                    "ARQ worker restart failed; retrying in %s seconds",
+                    delay,
+                )
+                if _worker_stop_event.wait(delay):
+                    return
+                delay = min(delay * 2, 60)
+                continue
+
+            with _worker_lock:
+                process_holder["process"] = replacement
+            delay = 2
+            break
 
 
 def start_bot() -> None:
@@ -100,13 +134,14 @@ def run_bot_supervisor() -> None:
             start_bot()
             if _stop_event.is_set():
                 break
-            # A normal return without shutdown is unexpected (e.g. lock failure
-            # or polling loop exit); retry instead of leaving the service botless.
             logger.warning("Telegram bot exited unexpectedly; retrying in %s seconds", delay)
         except Exception:
             if _stop_event.is_set():
                 break
-            logger.exception("Telegram bot supervisor caught an unexpected failure; retrying in %s seconds", delay)
+            logger.exception(
+                "Telegram bot supervisor caught an unexpected failure; retrying in %s seconds",
+                delay,
+            )
 
         if _stop_event.wait(delay):
             break
@@ -116,6 +151,7 @@ def run_bot_supervisor() -> None:
 def shutdown_handler(signum, frame) -> None:
     logger.info("Shutdown signal received: %s", signum)
     _stop_event.set()
+    _worker_stop_event.set()
     if _telegram_bot:
         logger.info("Stopping Telegram bot...")
         _telegram_bot.stop_bot()
@@ -128,8 +164,15 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
 
-    worker_process = start_worker_process()
+    worker_state = {"process": start_worker_process()}
+    worker_thread = threading.Thread(
+        target=run_worker_supervisor,
+        args=(worker_state,),
+        name="arq-worker-supervisor",
+        daemon=True,
+    )
     try:
+        worker_thread.start()
         bot_thread = threading.Thread(
             target=run_bot_supervisor,
             name="telegram-bot",
@@ -146,4 +189,8 @@ if __name__ == "__main__":
             log_config=None,
         )
     finally:
+        _worker_stop_event.set()
+        worker_thread.join(timeout=10)
+        with _worker_lock:
+            worker_process = worker_state["process"]
         stop_worker_process(worker_process)
