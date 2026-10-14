@@ -6,14 +6,6 @@ from unittest.mock import AsyncMock, patch
 from app.workers import queue
 
 
-def _patch_pool(pool):
-    return (
-        patch.object(queue, "settings", SimpleNamespace(redis_url="redis://localhost:6379/0")),
-        patch.object(queue.RedisSettings, "from_dsn", return_value=object()),
-        patch.object(queue, "create_pool", new=AsyncMock(return_value=pool)),
-    )
-
-
 def test_enqueue_closes_its_pool_after_success():
     pool = SimpleNamespace(
         enqueue_job=AsyncMock(return_value=SimpleNamespace(job_id="task:abc")),
