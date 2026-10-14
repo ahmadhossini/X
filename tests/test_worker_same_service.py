@@ -4,7 +4,11 @@ import subprocess
 
 import pytest
 
-from main import start_worker_process, stop_worker_process
+from main import (
+    run_worker_supervisor,
+    start_worker_process,
+    stop_worker_process,
+)
 
 
 class FakeProcess:
@@ -65,3 +69,30 @@ def test_stop_worker_terminates_running_child():
     assert process.terminated is True
     assert process.killed is False
     assert process.wait_calls == [10]
+
+
+def test_worker_supervisor_restarts_worker_after_crash(monkeypatch):
+    crashed = FakeProcess(return_code=1)
+    replacement = FakeProcess()
+    calls = []
+
+    class StopAfterRestart:
+        def __init__(self):
+            self.wait_calls = 0
+
+        def wait(self, _timeout):
+            self.wait_calls += 1
+            return self.wait_calls > 1
+
+        def is_set(self):
+            return False
+
+    stop_event = StopAfterRestart()
+    monkeypatch.setattr("main._worker_stop_event", stop_event)
+    monkeypatch.setattr("main.start_worker_process", lambda: calls.append(True) or replacement)
+
+    holder = {"process": crashed}
+    run_worker_supervisor(holder)
+
+    assert calls == [True]
+    assert holder["process"] is replacement
