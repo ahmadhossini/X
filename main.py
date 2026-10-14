@@ -4,6 +4,7 @@ import logging
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 
@@ -14,7 +15,14 @@ from api.main import app
 from bot.main import build_bot
 from bot.telegram_polling_lock import TelegramPollingLock
 
-logging.basicConfig(level=logging.INFO)
+# Railway classifies stderr output as errors in some log views. Send standard
+# application logs to stdout and replace any earlier root-handler setup.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    stream=sys.stdout,
+    force=True,
+)
 logger = logging.getLogger(__name__)
 
 _bot_running = False
@@ -130,6 +138,12 @@ if __name__ == "__main__":
         bot_thread.start()
 
         port = int(os.getenv("PORT", "10000"))
-        uvicorn.run(app, host="0.0.0.0", port=port)
+        # Keep Uvicorn on the same stdout-based logging setup above.
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=port,
+            log_config=None,
+        )
     finally:
         stop_worker_process(worker_process)
