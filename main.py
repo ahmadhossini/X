@@ -83,6 +83,8 @@ def run_worker_supervisor(initial_process: subprocess.Popen) -> None:
             lifetime = time.monotonic() - started_at
             if lifetime >= 30:
                 delay = 2
+            else:
+                delay = min(delay * 2, 60)
             logger.error(
                 "ARQ worker exited unexpectedly (code=%s); restart scheduled",
                 return_code,
