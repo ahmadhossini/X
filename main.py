@@ -29,6 +29,8 @@ _bot_running = False
 _stop_event = threading.Event()
 _bot_lock = threading.Lock()
 _telegram_bot: TeleBot | None = None
+_worker_process: subprocess.Popen | None = None
+_worker_process_lock = threading.Lock()
 
 
 def start_worker_process() -> subprocess.Popen:
@@ -61,6 +63,45 @@ def stop_worker_process(process: subprocess.Popen) -> None:
         logger.warning("ARQ worker did not stop in time; killing it")
         process.kill()
         process.wait(timeout=5)
+
+def run_worker_supervisor(initial_process: subprocess.Popen) -> None:
+    """Restart ARQ if it exits after startup, using bounded exponential backoff."""
+    global _worker_process
+
+    process: subprocess.Popen | None = initial_process
+    delay = 2
+    started_at = time.monotonic()
+
+    while not _stop_event.is_set():
+        if process is not None and process.poll() is None:
+            if _stop_event.wait(1):
+                break
+            continue
+
+        if process is not None:
+            return_code = process.poll()
+            lifetime = time.monotonic() - started_at
+            if lifetime >= 30:
+                delay = 2
+            logger.error(
+                "ARQ worker exited unexpectedly (code=%s); restart scheduled",
+                return_code,
+            )
+            process = None
+
+        if _stop_event.is_set() or _stop_event.wait(delay):
+            break
+
+        try:
+            process = start_worker_process()
+            started_at = time.monotonic()
+            with _worker_process_lock:
+                _worker_process = process
+            logger.info("ARQ worker supervisor restarted the worker")
+        except Exception:
+            logger.exception("ARQ worker restart failed; retrying in %s seconds", delay)
+            delay = min(delay * 2, 60)
+
 
 
 def start_bot() -> None:
@@ -128,8 +169,16 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, shutdown_handler)
     signal.signal(signal.SIGINT, shutdown_handler)
 
-    worker_process = start_worker_process()
+    _worker_process = start_worker_process()
+    worker_process = _worker_process
+    worker_supervisor_thread = threading.Thread(
+        target=run_worker_supervisor,
+        args=(worker_process,),
+        name="arq-worker-supervisor",
+        daemon=True,
+    )
     try:
+        worker_supervisor_thread.start()
         bot_thread = threading.Thread(
             target=run_bot_supervisor,
             name="telegram-bot",
@@ -146,4 +195,9 @@ if __name__ == "__main__":
             log_config=None,
         )
     finally:
-        stop_worker_process(worker_process)
+        _stop_event.set()
+        worker_supervisor_thread.join(timeout=15)
+        with _worker_process_lock:
+            current_worker = _worker_process
+        if current_worker is not None:
+            stop_worker_process(current_worker)
