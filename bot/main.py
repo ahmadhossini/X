@@ -25,13 +25,29 @@ TASK_REPO_REQUEST_RE = re.compile(r"^(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.
 
 
 def _run_async(func, *args):
+    """Run one async operation on an isolated loop and release loop resources.
+
+    Async Redis/ARQ pools and HTTP clients used by these operations are scoped
+    to the call, so this helper deliberately does not share an event loop
+    between TeleBot worker threads. Complete async cleanup before closing the
+    loop to avoid leaving async generators or executor threads behind.
+    """
     loop = asyncio.new_event_loop()
     try:
         asyncio.set_event_loop(loop)
         return loop.run_until_complete(func(*args))
     finally:
-        loop.close()
-        asyncio.set_event_loop(None)
+        try:
+            loop.run_until_complete(loop.shutdown_asyncgens())
+        except Exception:
+            logger.exception("Failed to shut down async generators")
+        try:
+            loop.run_until_complete(loop.shutdown_default_executor())
+        except Exception:
+            logger.exception("Failed to shut down async executor")
+        finally:
+            loop.close()
+            asyncio.set_event_loop(None)
 
 
 def _get_or_create_user(telegram_id: int) -> User:
