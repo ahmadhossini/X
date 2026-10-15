@@ -1,4 +1,8 @@
+import asyncio
+
+import code_agent.agent as agent
 from code_agent.agent import _branch_name, _output_language, _safe_path
+from code_agent.github import GitHubRepoError
 
 
 def test_safe_path_rejects_traversal_and_protected_files():
@@ -40,3 +44,54 @@ def test_output_language_prefers_selected_telegram_language():
     assert _output_language("این کد را درست کن", "en") == "English"
     assert _output_language("fix this code", "hi") == "Hindi"
     assert _output_language("این کد را درست کن") == "Persian (Farsi)"
+
+
+
+def test_agent_marks_partial_github_side_effect_when_pr_creation_fails(monkeypatch):
+    class FakeRepo:
+        def __init__(self, repository, installation_id):
+            self.branch_created = False
+            self.closed = False
+
+        async def repo(self):
+            return {"default_branch": "main"}
+
+        async def create_branch(self, branch, base):
+            self.branch_created = True
+
+        async def apply_changes(self, branch, changes, commit_message, idempotency_marker=None):
+            return "commit-sha"
+
+        async def pull_request(self, branch, base, title, body):
+            raise GitHubRepoError("simulated pull request failure")
+
+        async def aclose(self):
+            self.closed = True
+
+    async def fake_build_context(repo, base):
+        return {}
+
+    async def fake_plan_changes(api_key, model, request, context, language):
+        return {"summary": "test change", "changes": [{"path": "sample.py", "content": "value = 1"}]}
+
+    monkeypatch.setattr(agent, "GitHubRepo", FakeRepo)
+    monkeypatch.setattr(agent, "build_context", fake_build_context)
+    monkeypatch.setattr(agent, "plan_changes", fake_plan_changes)
+
+    try:
+        asyncio.run(
+            agent.execute_task(
+                "test-key",
+                "test-model",
+                "owner/repo",
+                "make a test change",
+                123,
+                True,
+                "en",
+                None,
+            )
+        )
+    except GitHubRepoError as exc:
+        assert getattr(exc, "side_effects_applied", False) is True
+    else:
+        raise AssertionError("Expected simulated pull request failure")
