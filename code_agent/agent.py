@@ -275,10 +275,12 @@ async def execute_task(
             return {"status": "no_changes", "summary": plan["summary"], "changes": []}
 
         branch = _branch_name(request, task_id)
-        await repo.create_branch(branch, base)
-        # Creating the branch is already a persistent GitHub side effect.
-        # Preserve this fact if a later commit/PR request fails or times out.
+        # The create-branch request can succeed on GitHub while its response is
+        # lost (for example, a network timeout). Mark the outcome as potentially
+        # side-effecting before sending it so an ambiguous failure never triggers
+        # an unsafe automatic credit refund.
         side_effects_applied = True
+        await repo.create_branch(branch, base)
         commit_message = f"feat(agent): {plan['summary'][:60] or 'apply requested changes'}"
         if marker:
             commit_message = f"{commit_message} [{marker}]"
