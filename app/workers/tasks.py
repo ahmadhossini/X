@@ -87,11 +87,11 @@ async def process_coding_task(ctx: dict[str, Any], task_id: str) -> None:
             logger.info("Task completed task_id=%s repository=%s", task.id, task.repository)
         except (AgentError, GitHubAppError, RuntimeError) as exc:
             logger.exception("Task failed task_id=%s", task.id)
-            fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not side_effects_applied)
+            fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not (side_effects_applied or getattr(exc, "side_effects_applied", False)))
             _notify(task, False)
         except Exception as exc:
             logger.exception("Unexpected task failure task_id=%s", task.id)
-            fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not side_effects_applied)
+            fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not (side_effects_applied or getattr(exc, "side_effects_applied", False)))
             _notify(task, False)
     await asyncio.to_thread(run)
 
