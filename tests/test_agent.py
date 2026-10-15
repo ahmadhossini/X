@@ -95,3 +95,49 @@ def test_agent_marks_partial_github_side_effect_when_pr_creation_fails(monkeypat
         assert getattr(exc, "side_effects_applied", False) is True
     else:
         raise AssertionError("Expected simulated pull request failure")
+
+
+def test_agent_marks_ambiguous_branch_creation_failure_as_side_effect(monkeypatch):
+    class FakeRepo:
+        def __init__(self, repository, installation_id):
+            self.branch_created = False
+            self.closed = False
+
+        async def repo(self):
+            return {"default_branch": "main"}
+
+        async def create_branch(self, branch, base):
+            # Simulate GitHub creating the branch, then the response being lost.
+            self.branch_created = True
+            raise GitHubRepoError("simulated timeout after branch creation")
+
+        async def aclose(self):
+            self.closed = True
+
+    async def fake_build_context(repo, base):
+        return {}
+
+    async def fake_plan_changes(api_key, model, request, context, language):
+        return {"summary": "test change", "changes": [{"path": "sample.py", "content": "value = 1"}]}
+
+    monkeypatch.setattr(agent, "GitHubRepo", FakeRepo)
+    monkeypatch.setattr(agent, "build_context", fake_build_context)
+    monkeypatch.setattr(agent, "plan_changes", fake_plan_changes)
+
+    try:
+        asyncio.run(
+            agent.execute_task(
+                "test-key",
+                "test-model",
+                "owner/repo",
+                "make a test change",
+                123,
+                True,
+                "en",
+                None,
+            )
+        )
+    except GitHubRepoError as exc:
+        assert getattr(exc, "side_effects_applied", False) is True
+    else:
+        raise AssertionError("Expected simulated branch-creation timeout")
