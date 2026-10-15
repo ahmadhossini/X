@@ -241,6 +241,7 @@ async def execute_task(
 ) -> dict[str, Any]:
     repo = GitHubRepo(repository, installation_id)
     marker = f"XAI-TASK:{task_id}" if task_id else None
+    side_effects_applied = False
     try:
         metadata = await repo.repo()
         base = metadata.get("default_branch", "main")
@@ -251,6 +252,8 @@ async def execute_task(
             except GitHubRepoError:
                 raise
             if recovered is not None:
+                # A recovered task already has a durable GitHub side effect.
+                side_effects_applied = True
                 result = recovered
                 if create_pr:
                     pr = await repo.pull_request(
@@ -273,6 +276,9 @@ async def execute_task(
 
         branch = _branch_name(request, task_id)
         await repo.create_branch(branch, base)
+        # Creating the branch is already a persistent GitHub side effect.
+        # Preserve this fact if a later commit/PR request fails or times out.
+        side_effects_applied = True
         commit_message = f"feat(agent): {plan['summary'][:60] or 'apply requested changes'}"
         if marker:
             commit_message = f"{commit_message} [{marker}]"
@@ -297,5 +303,12 @@ async def execute_task(
                 "draft": pr.get("draft", True),
             }
         return result
+    except Exception as exc:
+        if side_effects_applied:
+            try:
+                setattr(exc, "side_effects_applied", True)
+            except Exception:
+                pass
+        raise
     finally:
         await repo.aclose()
