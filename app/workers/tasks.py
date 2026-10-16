@@ -68,7 +68,7 @@ async def process_coding_task(ctx: dict[str, Any], task_id: str) -> None:
             ))
             if result.get("status") == "no_changes":
                 fail_task(task.id, settings.gemini_model, "no_changes", refund=True)
-                _notify(task, False)
+                _notify(task, False, error="no_changes")
                 return
             side_effects_applied = bool(result.get("commit") or result.get("branch") or result.get("pull_request"))
             branch = result.get("branch")
