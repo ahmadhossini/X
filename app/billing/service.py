@@ -31,6 +31,11 @@ def create_plan_payment(db: Session, user_id: int, plan_key: str) -> TonPaymentI
     if plan is None or plan_key == "free":
         raise BillingServiceError("Paid plan is not configured")
 
+    # Payment verification currently queries TON mainnet only. Do not create
+    # invoices on another network that this application cannot verify.
+    if settings.ton_network != "mainnet":
+        raise BillingServiceError("TON payments require TON_NETWORK=mainnet")
+
     user = db.scalar(
         select(User).where(User.id == user_id).with_for_update()
     )
