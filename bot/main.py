@@ -175,11 +175,11 @@ def _safe_enqueue_reason(error: Exception, language: str) -> str:
         # Preserve the actual exception class/message where safe, rather than
         # incorrectly claiming that the worker itself is offline.
         safe = raw
-        safe = re.sub(r"(?i)(redis(?:s)?://)[^\s'\"]+", r"\\1[credentials-redacted]", safe)
-        safe = re.sub(r"(?i)(postgres(?:ql)?://)[^\s'\"]+", r"\\1[credentials-redacted]", safe)
-        safe = re.sub(r"(?i)(token|secret|password|api[_ -]?key|authorization)\\s*[:=]\\s*[^\\s,;]+", r"\\1=[redacted]", safe)
-        safe = re.sub(r"(?i)bearer\\s+[^\\s]+", "Bearer [redacted]", safe)
-        safe = re.sub(r"(?i)(://[^:/\\s]+:)[^@/\\s]+@", r"\\1[redacted]@", safe)
+        safe = re.sub(r"(?i)(redis(?:s)?://)[^\s'\"]+", r"\1[credentials-redacted]", safe)
+        safe = re.sub(r"(?i)(postgres(?:ql)?://)[^\s'\"]+", r"\1[credentials-redacted]", safe)
+        safe = re.sub(r"(?i)(token|secret|password|api[_ -]?key|authorization)\s*[:=]\s*[^\s,;]+", r"\1=[redacted]", safe)
+        safe = re.sub(r"(?i)bearer\s+[^\s]+", "Bearer [redacted]", safe)
+        safe = re.sub(r"(?i)(://[^:/\s]+:)[^@/\s]+@", r"\1[redacted]@", safe)
         reason = {
             "fa": f"ثبت وظیفه در صف شکست خورد؛ جزئیات خطا: {safe[:350]}",
             "hi": f"कार्य को queue में भेजना विफल हुआ; त्रुटि विवरण: {safe[:350]}",
