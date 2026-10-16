@@ -218,11 +218,11 @@ def _execute_claimed(task: Task, worker_id: str) -> None:
     except (AgentError, GitHubAppError, RuntimeError) as exc:
         logger.exception("Task failed task_id=%s repository=%s", task.id, task.repository)
         fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not side_effects_applied)
-        _notify(task, False)
+        _notify(task, False, error=str(exc))
     except Exception as exc:
         logger.exception("Unexpected task failure task_id=%s", task.id)
         fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not side_effects_applied)
-        _notify(task, False)
+        _notify(task, False, error=str(exc))
     finally:
         heartbeat_stop.set()
         heartbeat.join(timeout=2.0)
