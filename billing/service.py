@@ -7,6 +7,7 @@ from uuid import uuid4
 from sqlalchemy import select
 
 from app.billing.plans import PLANS
+from app.billing.subscriptions import expire_user_plan_in_session
 from core.config import settings
 from database.models import GitHubInstallation, Task, UsageRecord, User
 from database.session import SessionLocal
@@ -47,6 +48,7 @@ def ensure_user_credit_state(telegram_id: int) -> tuple[int, str]:
             raise BillingError("User not found")
 
         now = datetime.now(timezone.utc)
+        expire_user_plan_in_session(db, user, now)
         plan = user.plan if user.plan in PLANS else "free"
         if user.plan != plan:
             user.plan = plan
@@ -88,6 +90,7 @@ def reserve_task_credits(
             raise BillingError("User not found")
 
         now = datetime.now(timezone.utc)
+        expire_user_plan_in_session(db, user, now)
         plan = user.plan if user.plan in PLANS else "free"
         credits_reset_at = _as_utc(user.credits_reset_at)
         if credits_reset_at is None or credits_reset_at <= now:
