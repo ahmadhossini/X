@@ -3,22 +3,25 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 
 from sqlalchemy import select
 from telebot import TeleBot, types
 from telebot.types import CallbackQuery, Message
 
 from api.github_connect import create_connect_state
+from app.workers.queue import enqueue_coding_task
 from billing.service import BillingError, ensure_user_credit_state, estimate_task_credits, reserve_task_credits
-from bot.chat import handle_chat_message
 from bot.locales import t
 from code_agent.github_app import github_app_get
 from core.config import settings
+from bot.telegram_polling_lock import TelegramPollingLock
 from database.models import GitHubInstallation, User
 from database.session import SessionLocal
 
 logger = logging.getLogger(__name__)
 SUPPORTED_LANGUAGES = {"en", "hi", "fa"}
+TASK_REPO_REQUEST_RE = re.compile(r"^(?P<repository>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\s*\|\s*(?P<request>.+)$", re.DOTALL)
 
 
 def _run_async(func, *args):
@@ -125,6 +128,80 @@ def _set_user_commands(bot: TeleBot, user_id: int, language: str) -> None:
 
 def _language_prompt() -> str:
     return "Choose your language / अपनी भाषा चुनें / زبان خود را انتخاب کنید:"
+
+
+def _safe_enqueue_reason(error: Exception, language: str) -> str:
+    """Return a useful enqueue diagnostic without leaking credentials or connection URLs."""
+    raw = f"{type(error).__name__}: {error}".strip()
+    folded = raw.casefold()
+
+    if "redis_url is required" in folded:
+        reason = {
+            "fa": "تنظیم REDIS_URL در محیط سرور خالی یا تنظیم نشده است.",
+            "hi": "सर्वर पर REDIS_URL सेट नहीं है या खाली है।",
+            "en": "The REDIS_URL environment setting is missing or empty.",
+        }
+    elif any(term in folded for term in ("authentication required", "invalid password", "wrongpass", "noauth", "redis authentication")):
+        reason = {
+            "fa": "Redis اتصال را به‌دلیل نامعتبر بودن اطلاعات احراز هویت رد کرد.",
+            "hi": "Redis ने गलत प्रमाणीकरण विवरण के कारण कनेक्शन अस्वीकार किया।",
+            "en": "Redis rejected the connection because authentication failed.",
+        }
+    elif any(term in folded for term in ("connection refused", "actively refused")):
+        reason = {
+            "fa": "اتصال به میزبان Redis رد شد؛ سرویس یا میزبان/پورت تنظیم‌شده در دسترس نیست.",
+            "hi": "Redis कनेक्शन अस्वीकार हुआ; सेवा या कॉन्फ़िगर किया गया host/port उपलब्ध नहीं है।",
+            "en": "The Redis connection was refused; the service or configured host/port is unavailable.",
+        }
+    elif any(term in folded for term in ("timed out", "timeout")):
+        reason = {
+            "fa": "اتصال یا عملیات صف Redis به پایان مهلت انتظار رسید.",
+            "hi": "Redis कनेक्शन या queue operation का समय समाप्त हो गया।",
+            "en": "The Redis connection or queue operation timed out.",
+        }
+    elif any(term in folded for term in ("name or service not known", "temporary failure in name resolution", "getaddrinfo failed", "nodename nor servname", "name resolution")):
+        reason = {
+            "fa": "نام میزبان Redis از طریق DNS پیدا نشد؛ آدرس میزبان تنظیم‌شده را بررسی کن.",
+            "hi": "DNS Redis host को नहीं खोज पाया; कॉन्फ़िगर किया गया host जाँचें।",
+            "en": "DNS could not resolve the Redis host; check the configured hostname.",
+        }
+    elif any(term in folded for term in ("connection reset", "connection closed", "broken pipe", "server closed the connection")):
+        reason = {
+            "fa": "اتصال Redis هنگام ارسال وظیفه قطع شد؛ سرور Redis یا مسیر شبکه ارتباط را بست.",
+            "hi": "कार्य भेजते समय Redis कनेक्शन टूट गया; Redis server या network ने कनेक्शन बंद किया।",
+            "en": "The Redis connection dropped while submitting the job; the server or network closed it.",
+        }
+    else:
+        # Preserve the actual exception class/message where safe, rather than
+        # incorrectly claiming that the worker itself is offline.
+        safe = raw
+        safe = re.sub(r"(?i)(redis(?:s)?://)[^\s'\"]+", r"\1[credentials-redacted]", safe)
+        safe = re.sub(r"(?i)(postgres(?:ql)?://)[^\s'\"]+", r"\1[credentials-redacted]", safe)
+        safe = re.sub(r"(?i)(token|secret|password|api[_ -]?key|authorization)\s*[:=]\s*[^\s,;]+", r"\1=[redacted]", safe)
+        safe = re.sub(r"(?i)bearer\s+[^\s]+", "Bearer [redacted]", safe)
+        safe = re.sub(r"(?i)(://[^:/\s]+:)[^@/\s]+@", r"\1[redacted]@", safe)
+        reason = {
+            "fa": f"ثبت وظیفه در صف شکست خورد؛ جزئیات خطا: {safe[:350]}",
+            "hi": f"कार्य को queue में भेजना विफल हुआ; त्रुटि विवरण: {safe[:350]}",
+            "en": f"Submitting the task to the queue failed; error details: {safe[:350]}",
+        }
+
+    return reason.get(language, reason["en"])
+
+
+def _enqueue_reserved_task(task_id: str, language: str = "en") -> str | None:
+    """Return a safe diagnostic on enqueue failure; keep the persisted task queued."""
+    try:
+        job_id = _run_async(enqueue_coding_task, task_id)
+    except Exception as exc:
+        logger.exception(
+            "Failed to enqueue coding task; task remains queued for worker reconciliation task_id=%s",
+            task_id,
+        )
+        return _safe_enqueue_reason(exc, language)
+
+    logger.info("Coding task enqueued task_id=%s job_id=%s", task_id, job_id)
+    return None
 
 
 def build_bot() -> TeleBot:
@@ -266,8 +343,16 @@ def build_bot() -> TeleBot:
             bot.reply_to(message, t(language, "connect_first"), reply_markup=_connect_markup(user_id, language))
             return
 
-        request = (message.text or "")[len("/task"):].strip()
-        if len(request) < 3 or request.startswith("/"):
+        raw_task = (message.text or "")[len("/task"):].strip()
+        if len(raw_task) < 3 or raw_task.startswith("/"):
+            bot.reply_to(message, t(language, "task_format"), reply_markup=_main_keyboard(language))
+            return
+
+        explicit_match = TASK_REPO_REQUEST_RE.match(raw_task)
+        explicit_repository = explicit_match.group("repository") if explicit_match else None
+        request = explicit_match.group("request").strip() if explicit_match else raw_task
+
+        if len(request) < 3:
             bot.reply_to(message, t(language, "task_format"), reply_markup=_main_keyboard(language))
             return
 
@@ -275,14 +360,20 @@ def build_bot() -> TeleBot:
             data = _run_async(github_app_get, "/installation/repositories?per_page=100", installation.installation_id)
             repositories = [repo.get("full_name") for repo in data.get("repositories", []) if repo.get("full_name")]
         except Exception:
-            logger.exception("Failed to resolve default repository for task")
+            logger.exception("Failed to resolve repositories for task")
             bot.reply_to(message, t(language, "github_error"), reply_markup=_main_keyboard(language))
             return
 
-        if len(repositories) != 1:
+        if explicit_repository:
+            if explicit_repository not in repositories:
+                bot.reply_to(message, t(language, "invalid_repo"), reply_markup=_main_keyboard(language))
+                return
+            repository = explicit_repository
+        elif len(repositories) == 1:
+            repository = repositories[0]
+        else:
             bot.reply_to(message, t(language, "task_choose_repo", count=len(repositories)), reply_markup=_main_keyboard(language))
             return
-        repository = repositories[0]
 
         estimated_credits = estimate_task_credits(request)
         try:
@@ -307,6 +398,30 @@ def build_bot() -> TeleBot:
                 bot.reply_to(message, t(language, "task_already_running"), reply_markup=_main_keyboard(language))
             else:
                 bot.reply_to(message, t(language, "billing_error"), reply_markup=_main_keyboard(language))
+            return
+
+        enqueue_error = _enqueue_reserved_task(reservation.task_id, language)
+        if enqueue_error:
+            if language == "fa":
+                queue_message = (
+                    "ارسال وظیفه به صف ناموفق شد. علت تشخیص‌داده‌شده: "
+                    f"{enqueue_error}\n"
+                    "وظیفه در پایگاه داده با وضعیت queued باقی مانده و اعتبار آن دوباره کسر نشده است؛ "
+                    "لطفاً درخواست را تکرار نکن."
+                )
+            elif language == "hi":
+                queue_message = (
+                    "कार्य को queue में भेजना विफल हुआ। पहचाना गया कारण: "
+                    f"{enqueue_error}\n"
+                    "कार्य database में queued है और क्रेडिट दोबारा नहीं काटे गए हैं; कृपया अनुरोध दोबारा न भेजें।"
+                )
+            else:
+                queue_message = (
+                    "Submitting the task to the queue failed. Detected reason: "
+                    f"{enqueue_error}\n"
+                    "The task remains queued in the database and its credits were not charged again; please do not resubmit."
+                )
+            bot.reply_to(message, queue_message[:4000], reply_markup=_main_keyboard(language))
             return
 
         bot.reply_to(
@@ -334,7 +449,5 @@ def build_bot() -> TeleBot:
             disconnect(message)
         elif text == t(language, "brand_button"):
             bot.send_message(message.chat.id, t(language, "menu_home"), reply_markup=_main_keyboard(language), parse_mode="HTML")
-        elif not text.startswith("/"):
-            handle_chat_message(bot, message)
 
     return bot

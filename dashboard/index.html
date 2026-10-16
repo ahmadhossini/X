@@ -10,42 +10,101 @@
 <body>
   <main class="app">
     <header class="topbar">
-      <div>
+      <div class="brand">
         <div class="eyebrow">XAI CODE AGENT</div>
-        <h1 id="title">دستیار کدنویسی</h1>
+        <h1 id="pageTitle">خانه</h1>
       </div>
       <div id="status" class="status">در حال آماده‌سازی</div>
     </header>
 
-    <section class="hero card">
-      <h2 id="heroTitle">پروژه‌ات را به Agent بسپار</h2>
-      <p id="heroText">مخزن GitHub را وصل کن، درخواست تغییر کد را بنویس و نتیجه را به شکل Branch و Pull Request دریافت کن.</p>
-      <button id="connectBtn" class="primary">اتصال GitHub</button>
+    <section id="homePage" class="page active">
+      <section class="profile card">
+        <div class="avatar-wrap"><img id="avatar" class="avatar" alt=""></div>
+        <div class="profile-info">
+          <strong id="profileName">—</strong>
+          <span id="profileUsername">@—</span>
+        </div>
+      </section>
+      <section class="hero card">
+        <h2 id="welcomeTitle">XAI Code Agent</h2>
+        <p id="welcomeText">وضعیت اتصال GitHub و حساب خود را از اینجا مدیریت کنید.</p>
+        <button id="connectBtn" class="primary">اتصال GitHub</button>
+      </section>
+      <section class="card stats">
+        <div><span id="planLabel">پلن</span><strong id="plan">Free</strong></div>
+        <div><span id="creditsLabel">اعتبار</span><strong id="credits">—</strong></div>
+        <div><span id="repoCountLabel">مخزن‌ها</span><strong id="repoCount">—</strong></div>
+      </section>
     </section>
 
-    <section class="card">
-      <div class="section-head">
-        <h2 id="repoTitle">مخزن‌ها</h2>
-        <button id="refreshBtn" class="ghost">به‌روزرسانی</button>
-      </div>
-      <div id="repos" class="empty">برای نمایش مخزن‌ها ابتدا GitHub را وصل کنید.</div>
+    <section id="reposPage" class="page">
+      <section id="repoListView" class="card">
+        <div class="section-head">
+          <h2 id="reposTitle">مخزن‌ها</h2>
+          <button id="refreshBtn" class="icon-btn" aria-label="Refresh">↻</button>
+        </div>
+        <div id="repos" class="repo-list"><div class="empty">در حال بارگذاری...</div></div>
+      </section>
+
+      <section id="repoDetailView" class="card repo-detail" hidden>
+        <div class="section-head detail-head">
+          <button id="repoBackBtn" class="icon-btn" aria-label="Back">‹</button>
+          <h2 id="repoDetailTitle">مخزن</h2>
+          <span></span>
+        </div>
+        <div class="repo-detail-profile">
+          <img id="repoDetailAvatar" class="repo-detail-avatar" alt="">
+          <div>
+            <strong id="repoDetailName">—</strong>
+            <span id="repoDetailOwner">@—</span>
+          </div>
+        </div>
+        <div id="repoDetailVisibility" class="visibility-badge">Public</div>
+        <p id="repoDetailDescription" class="detail-description">—</p>
+        <div class="detail-grid">
+          <div><span>Branch</span><strong id="repoDetailBranch">—</strong></div>
+          <div><span>Language</span><strong id="repoDetailLanguage">—</strong></div>
+          <div><span>Stars</span><strong id="repoDetailStars">—</strong></div>
+          <div><span>Forks</span><strong id="repoDetailForks">—</strong></div>
+          <div><span>Issues</span><strong id="repoDetailIssues">—</strong></div>
+          <div><span>Updated</span><strong id="repoDetailUpdated">—</strong></div>
+        </div>
+        <a id="repoDetailLink" class="github-link" href="#" target="_blank" rel="noopener noreferrer">Open on GitHub</a>
+      </section>
     </section>
 
-    <section class="card">
-      <h2 id="taskTitle">درخواست کدنویسی</h2>
-      <label for="repoInput" id="repoLabel">Repository</label>
-      <input id="repoInput" autocomplete="off" placeholder="owner/repository">
-      <label for="requestInput" id="requestLabel">درخواست</label>
-      <textarea id="requestInput" rows="5" placeholder="مثلاً: خطای ورود را پیدا و اصلاح کن"></textarea>
-      <button id="taskBtn" class="primary">ارسال درخواست</button>
-      <div id="taskResult" class="result" hidden></div>
+    <section id="subscriptionPage" class="page">
+      <section class="card subscription">
+        <span class="eyebrow" id="currentPlanLabel">پلن فعلی</span>
+        <h2 id="currentPlan">Free</h2>
+        <p id="currentPlanText">دسترسی پایه برای شروع کار.</p>
+        <div class="credit-line"><span id="subCreditsLabel">اعتبار ماهانه</span><strong id="subCredits">—</strong></div>
+      </section>
+      <section class="card plan-card">
+        <div class="plan-head"><div><span class="eyebrow">PRO</span><h2 id="proTitle">Pro</h2></div><strong id="proPrice">— TON</strong></div>
+        <p id="proText">اعتبار بیشتر برای استفاده از Agent و پروژه‌های بیشتر.</p>
+        <button id="proBtn" class="primary">ارتقا به Pro</button>
+        <div id="paymentResult" class="result" hidden></div>
+      </section>
+      <section class="card plan-card">
+        <div class="plan-head"><div><span class="eyebrow">TEAM</span><h2 id="teamTitle">Team</h2></div><strong id="teamPrice">— TON</strong></div>
+        <p id="teamText">برای تیم‌های کوچک با اعتبار و ظرفیت بیشتر.</p>
+        <button id="teamBtn" class="primary">ارتقا به Team</button>
+        <div id="teamPaymentResult" class="result" hidden></div>
+      </section>
     </section>
 
-    <section class="card compact">
-      <div class="section-head"><h2 id="accountTitle">حساب</h2><span id="plan">Free</span></div>
-      <div class="account-row"><span id="creditsLabel">اعتبار</span><strong id="credits">—</strong></div>
-      <button id="languageBtn" class="ghost full">English / हिन्दी / فارسی</button>
-    </section>
+    <nav class="bottom-nav" aria-label="Navigation">
+      <button class="nav-btn active" data-page="homePage" aria-label="Home">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.8 12 3l9 7.8v9.2a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>
+      </button>
+      <button class="nav-btn" data-page="reposPage" aria-label="Repositories">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6l2 2h8v13H4z"/><path d="M4 9h16"/></svg>
+      </button>
+      <button class="nav-btn" data-page="subscriptionPage" aria-label="Subscription">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>
+      </button>
+    </nav>
   </main>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="/dashboard/app.js" defer></script>
