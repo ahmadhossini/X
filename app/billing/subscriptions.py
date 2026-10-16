@@ -44,20 +44,39 @@ def activate_plan(db: Session, user_id: int, plan_key: str, expires_at: datetime
     return subscription
 
 
-def expire_subscription_if_needed(db: Session, user_id: int) -> bool:
-    subscription = db.scalar(select(Subscription).where(Subscription.user_id == user_id).with_for_update())
-    if subscription is None or subscription.plan == "free":
+def expire_user_plan_in_session(db: Session, user: User, now: datetime | None = None) -> bool:
+    """Downgrade an expired paid plan without committing the caller's transaction."""
+    if user.plan == "free":
         return False
-    now = utcnow()
-    if subscription.expires_at is None or subscription.expires_at > now:
+
+    now = now or utcnow()
+    subscription = db.scalar(
+        select(Subscription)
+        .where(Subscription.user_id == user.id)
+        .with_for_update()
+    )
+    if (
+        subscription is None
+        or subscription.plan == "free"
+        or subscription.expires_at is None
+        or subscription.expires_at > now
+    ):
         return False
+
     subscription.plan = "free"
     subscription.status = "expired"
     subscription.expires_at = now
-    user = db.scalar(select(User).where(User.id == user_id).with_for_update())
-    if user is not None:
-        user.plan = "free"
-        user.credits = 0
-        user.credits_reset_at = now
-    db.commit()
+    user.plan = "free"
+    user.credits = 0
+    user.credits_reset_at = now
     return True
+
+
+def expire_subscription_if_needed(db: Session, user_id: int) -> bool:
+    user = db.scalar(select(User).where(User.id == user_id).with_for_update())
+    if user is None:
+        return False
+    changed = expire_user_plan_in_session(db, user)
+    if changed:
+        db.commit()
+    return changed
