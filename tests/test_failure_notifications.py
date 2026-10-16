@@ -8,7 +8,7 @@ def test_failure_reason_explains_common_github_permission_error():
 
 
 def test_failure_reason_redacts_secret_assignments():
-    reason = _failure_reason("request failed api_key=super-secret-token", "en")
+    reason = _failure_reason("request failed token=super-secret-token", "en")
     assert "super-secret-token" not in reason
     assert "[redacted]" in reason
 
