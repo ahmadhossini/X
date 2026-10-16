@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import socket
 import threading
 from datetime import datetime, timedelta, timezone
@@ -105,7 +106,37 @@ def _run_async(func, *args):
         asyncio.set_event_loop(None)
 
 
-def _notify(task: Task, success: bool, result: dict | None = None) -> None:
+def _failure_reason(error: str | None, language: str) -> str:
+    """Create a bounded user-facing diagnostic and redact common secrets."""
+    raw = (error or "").strip()
+    folded = raw.casefold()
+    if not raw or raw == "no_changes":
+        return {
+            "fa": "عامل کد تغییر قابل‌اعمالی پیدا نکرد.",
+            "hi": "एजेंट को लागू करने योग्य कोई बदलाव नहीं मिला।",
+            "en": "The agent found no applicable code changes.",
+        }.get(language, "The agent found no applicable code changes.")
+    if any(term in folded for term in ("insufficient_quota", "quota exceeded", "rate limit", "429")):
+        return {"fa": "سهمیه یا محدودیت نرخ مدل هوش مصنوعی تمام شده است.", "hi": "AI मॉडल की quota या rate limit पूरी हो गई है.", "en": "The AI model quota or rate limit was reached."}.get(language, "The AI model quota or rate limit was reached.")
+    if any(term in folded for term in ("api key", "api_key", "unauthorized", "401")):
+        return {"fa": "احراز هویت سرویس رد شد؛ کلید یا تنظیمات دسترسی را بررسی کن.", "hi": "सेवा ने प्रमाणीकरण अस्वीकार किया; API key या access settings जाँचें.", "en": "Service authentication failed; check the API key or access settings."}.get(language, "Service authentication failed; check the API key or access settings.")
+    if any(term in folded for term in ("permission", "forbidden", "403", "resource not accessible")):
+        return {"fa": "دسترسی لازم وجود ندارد؛ مجوزهای GitHub App و دسترسی مخزن را بررسی کن.", "hi": "ज़रूरी अनुमति नहीं है; GitHub App और repository permissions जाँचें.", "en": "Required permission is missing; check GitHub App and repository access."}.get(language, "Required permission is missing; check GitHub App and repository access.")
+    if any(term in folded for term in ("repository not found", "repo not found", "404")):
+        return {"fa": "مخزن یا منبع درخواستی پیدا نشد؛ نام مخزن و نصب GitHub App را بررسی کن.", "hi": "Repository या resource नहीं मिला; नाम और GitHub App installation जाँचें.", "en": "The repository or requested resource was not found; check its name and GitHub App installation."}.get(language, "The repository or requested resource was not found; check its name and GitHub App installation.")
+    if "timeout" in folded or "timed out" in folded:
+        return {"fa": "زمان انتظار درخواست تمام شد؛ سرویس مقصد یا اتصال شبکه را بررسی کن.", "hi": "अनुरोध का समय समाप्त हुआ; remote service या network जाँचें.", "en": "The request timed out; check the remote service or network connection."}.get(language, "The request timed out; check the remote service or network connection.")
+    if "redis" in folded or "queue" in folded:
+        return {"fa": "صف اجرا یا Redis خطا داده است؛ اتصال Redis و Worker را بررسی کن.", "hi": "Task queue या Redis में समस्या है; Redis और Worker जाँचें.", "en": "The task queue or Redis failed; check Redis and the worker."}.get(language, "The task queue or Redis failed; check Redis and the worker.")
+    safe = re.sub(r"(?i)(token|secret|password|api[_ -]?key|authorization)\s*[:=]\s*[^\s,;]+", r"\1=[redacted]", raw)
+    safe = re.sub(r"(?i)bearer\s+[^\s]+", "Bearer [redacted]", safe)
+    safe = re.sub(r"(postgres(?:ql)?|redis)://[^\s]+", r"\1://[redacted]", safe)
+    safe = safe[:500]
+    prefix = {"fa": "خطای فنی: ", "hi": "तकनीकी त्रुटि: ", "en": "Technical error: "}.get(language, "Technical error: ")
+    return prefix + safe
+
+
+def _notify(task: Task, success: bool, result: dict | None = None, error: str | None = None) -> None:
     if not task.chat_id:
         return
     token = os.getenv("BOT_TOKEN", "")
@@ -127,12 +158,13 @@ def _notify(task: Task, success: bool, result: dict | None = None) -> None:
         if pr_url:
             text += f"\nPR: {pr_url}"
     else:
+        reason = _failure_reason(error, lang)
         if lang == "fa":
-            text = "اجرای کار ناموفق بود و اعتبار رزرو‌شده برگردانده شد."
+            text = f"اجرای کار ناموفق بود.\nعلت: {reason}\nجزئیات فنی کامل در لاگ سرور ثبت شده است."
         elif lang == "hi":
-            text = "कार्य विफल हुआ और आरक्षित क्रेडिट वापस कर दिए गए।"
+            text = f"कार्य विफल हुआ।\nकारण: {reason}\nपूरी तकनीकी जानकारी सर्वर लॉग में दर्ज है।"
         else:
-            text = "The task failed and the reserved credits were refunded."
+            text = f"The task failed.\nReason: {reason}\nFull technical details are recorded in server logs."
     try:
         bot.send_message(task.chat_id, text[:4000])
     except Exception:
@@ -161,7 +193,7 @@ def _execute_claimed(task: Task, worker_id: str) -> None:
         )
         if result.get("status") == "no_changes":
             fail_task(task.id, settings.gemini_model, "no_changes", refund=True)
-            _notify(task, False)
+            _notify(task, False, error="no_changes")
             return
 
         side_effects_applied = bool(result.get("commit") or result.get("branch") or result.get("pull_request"))
@@ -186,11 +218,11 @@ def _execute_claimed(task: Task, worker_id: str) -> None:
     except (AgentError, GitHubAppError, RuntimeError) as exc:
         logger.exception("Task failed task_id=%s repository=%s", task.id, task.repository)
         fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not side_effects_applied)
-        _notify(task, False)
+        _notify(task, False, error=str(exc))
     except Exception as exc:
         logger.exception("Unexpected task failure task_id=%s", task.id)
         fail_task(task.id, settings.gemini_model, str(exc)[:4000], refund=not side_effects_applied)
-        _notify(task, False)
+        _notify(task, False, error=str(exc))
     finally:
         heartbeat_stop.set()
         heartbeat.join(timeout=2.0)
