@@ -150,11 +150,9 @@ UNTRUSTED_REPOSITORY_CONTEXT_END'''
     try:
         result = json.loads(text)
     except json.JSONDecodeError as exc:
-        # Do not log the full model output: it may contain repository source code.
-        preview = re.sub(r"\\s+", " ", text[:180]).strip()
+        # Avoid exposing generated repository content in user-facing errors.
         raise AgentError(
-            f"Gemini returned invalid JSON (line {exc.lineno}, column {exc.colno}); "
-            f"response preview: {preview!r}"
+            f"Gemini returned invalid JSON (line {exc.lineno}, column {exc.colno})"
         ) from exc
 
     if not isinstance(result, dict):
