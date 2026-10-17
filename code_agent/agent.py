@@ -5,7 +5,7 @@ import json
 import re
 from typing import Any
 
-from google import genai
+from google import genai, types
 
 from code_agent.github import GitHubRepo, GitHubRepoError
 
@@ -134,8 +134,14 @@ UNTRUSTED_REPOSITORY_CONTEXT_START
 {json.dumps(context, ensure_ascii=False)}
 UNTRUSTED_REPOSITORY_CONTEXT_END'''
     client = genai.Client(api_key=api_key)
-    response = await client.aio.models.generate_content(model=model or "gemini-2.5-flash", contents=prompt)
+    response = await client.aio.models.generate_content(
+        model=model or "gemini-2.5-flash",
+        contents=prompt,
+        config=types.GenerateContentConfig(response_mime_type="application/json"),
+    )
     text = (response.text or "").strip()
+    if not text:
+        raise AgentError("Gemini returned an empty response; check model availability, safety blocking, and response finish reason")
 
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text, count=1, flags=re.IGNORECASE)
@@ -144,7 +150,12 @@ UNTRUSTED_REPOSITORY_CONTEXT_END'''
     try:
         result = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise AgentError("Gemini returned invalid JSON") from exc
+        # Do not log the full model output: it may contain repository source code.
+        preview = re.sub(r"\\s+", " ", text[:180]).strip()
+        raise AgentError(
+            f"Gemini returned invalid JSON (line {exc.lineno}, column {exc.colno}); "
+            f"response preview: {preview!r}"
+        ) from exc
 
     if not isinstance(result, dict):
         raise AgentError("Invalid change plan")
