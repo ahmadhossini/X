@@ -5,7 +5,8 @@ import json
 import re
 from typing import Any
 
-from google import genai, types
+from google import genai
+from google.genai import types
 
 from code_agent.github import GitHubRepo, GitHubRepoError
 
