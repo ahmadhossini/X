@@ -148,6 +148,13 @@ def test_read_only_request_classifier():
     assert is_read_only_request("Read README.md and summarize the project")
     assert is_read_only_request("برسی فایل mane.py")
     assert is_read_only_request("count files in the repository")
+    assert is_read_only_request(
+        "بررسی فقط و خواندن کد برای تست سلامت پردازش تسک. "
+        "هیچ فایلی را تغییر نده، هیچ کامیتی نساز و هیچ Pull Request ایجاد نکن. "
+        "در پایان نتیجهٔ بررسی را گزارش کن."
+    )
+    assert is_read_only_request("Review this repository; do not edit files or create commits.")
+    assert is_read_only_request("Analyze the code with no file changes and no pull requests.")
     assert not is_read_only_request("Fix the bug and explain the change")
     assert not is_read_only_request("modify README.md and summarize it")
     assert not is_read_only_request("Create a new test file")
