@@ -37,9 +37,15 @@ def test_requested_branch_name_supports_english_and_ignores_unspecified_names():
 
 def test_invalid_explicit_branch_name_is_rejected():
     import pytest
-    request = "create branch named ../main"
-    with pytest.raises(agent.AgentError, match="valid Git branch name"):
-        agent._requested_branch_name(request)
+    invalid_requests = [
+        "create branch named ../main",
+        "create branch named feature/.hidden",
+        "create branch named feature/name.lock",
+        "create branch named feature/name.",
+    ]
+    for request in invalid_requests:
+        with pytest.raises(agent.AgentError, match="valid Git branch name"):
+            agent._requested_branch_name(request)
 
 
 def test_branch_name_is_stable_for_task_and_contains_request_digest():
