@@ -138,7 +138,31 @@ def _safe_path(path: str) -> bool:
     return True
 
 
+def _requested_branch_name(request: str) -> str | None:
+    """Return an explicitly requested, syntactically safe branch name, if present."""
+    match = re.search(
+        r"(?:branch|شاخه).{0,60}?(?:با نام|به نام|به اسم|named|called|with name)\s*([A-Za-z0-9._/-]+)",
+        request,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    name = match.group(1).rstrip(",;:!?)")
+    components = name.split("/")
+    if (
+        not name or name.startswith("/") or name.endswith(("/", "."))
+        or ".." in name or "//" in name or "@{" in name
+        or any(char in name for char in " ~^:?*[\\")
+        or any(not part or part.startswith(".") or part.endswith(".") or part.endswith(".lock") for part in components)
+    ):
+        raise AgentError("The explicitly requested branch name is not a valid Git branch name")
+    return name
+
+
 def _branch_name(request: str, task_id: str | None = None) -> str:
+    requested = _requested_branch_name(request)
+    if requested:
+        return requested
     slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", request.lower()).strip("-")[:45].rstrip("-") or "change"
     digest = hashlib.sha256(request.encode("utf-8")).hexdigest()[:8]
     suffix = hashlib.sha256((task_id or request).encode("utf-8")).hexdigest()[:12]
@@ -380,11 +404,17 @@ async def execute_task(
             "branch": branch,
         }
         if create_pr:
+            changed_paths = [change["path"] for change in plan["changes"]]
             pr = await repo.pull_request(
                 branch,
                 base,
-                f"XAI Agent: {plan['summary'][:70] or request[:70]}",
-                f"Automated coding-agent change.\n\nRequest: {request}\n\nSummary: {plan['summary']}",
+                f"XAI Agent change: {request[:70]}",
+                (
+                    "Automated coding-agent change.\n\n"
+                    f"Request: {request}\n\n"
+                    "Files changed by this task:\n"
+                    + "\n".join(f"- {path}" for path in changed_paths)
+                ),
             )
             result["pull_request"] = {
                 "number": pr.get("number"),
