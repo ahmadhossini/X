@@ -24,6 +24,24 @@ def test_safe_path_rejects_traversal_and_protected_files():
     assert _safe_path("docs/README.md")
 
 
+def test_requested_branch_name_is_preserved_exactly():
+    request = "یک branch جدید با نام test/agent-file-write بساز"
+    assert agent._requested_branch_name(request) == "test/agent-file-write"
+    assert _branch_name(request, "task-123") == "test/agent-file-write"
+
+
+def test_requested_branch_name_supports_english_and_ignores_unspecified_names():
+    assert agent._requested_branch_name("create a branch named feature/fix-login") == "feature/fix-login"
+    assert agent._requested_branch_name("fix the login bug") is None
+
+
+def test_invalid_explicit_branch_name_is_rejected():
+    import pytest
+    request = "create branch named ../main"
+    with pytest.raises(agent.AgentError, match="valid Git branch name"):
+        agent._requested_branch_name(request)
+
+
 def test_branch_name_is_stable_for_task_and_contains_request_digest():
     first = _branch_name("fix login bug", "task-123")
     second = _branch_name("fix login bug", "task-123")
