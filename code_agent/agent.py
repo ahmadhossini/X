@@ -34,9 +34,31 @@ _MUTATION_RE = re.compile(
 )
 
 
+_NEGATED_MUTATION_RE = re.compile(
+    r"\b(?:do not|don['’]?t|dont|without|no)\s+(?:make any\s+)?"
+    r"(?:file\s+)?(?:changes?|edits?|modifications?|commits?|pull requests?|prs?)\b"
+    r"|\b(?:do not|don['’]?t|dont)\s+(?:change|edit|modify|update|create|delete|remove|add|commit|open)\b[^.!?;]*"
+    r"|\bno\s+(?:files?\s+)?(?:changes?|edits?|commits?|pull requests?|prs?)\b",
+    re.IGNORECASE,
+)
+_NEGATED_MUTATION_FA_RE = re.compile(
+    r"(?:هیچ\s*)?(?:فایلی|فایل‌ها|فایل|کدی|چیزی)?\s*(?:را\s*)?"
+    r"(?:تغییر|ویرایش|اصلاح|حذف|اضافه|ایجاد|درست)\s*(?:نکنید|نکن|ندهید|نده|نسازید|نساز)"
+    r"|(?:کامیت|کامی?ت|پول\s*ریکوئست|\bPR\b)\s*(?:ایجاد|ثبت|باز)\s*نکنید?",
+    re.IGNORECASE,
+)
+
+
 def is_read_only_request(request: str) -> bool:
-    """Identify explicit inspection/report requests without overriding change requests."""
-    return bool(_READ_ONLY_RE.search(request or "")) and not bool(_MUTATION_RE.search(request or ""))
+    """Recognize inspection requests while ignoring explicitly negated mutations."""
+    raw = request or ""
+    if not _READ_ONLY_RE.search(raw):
+        return False
+
+    # Remove explicit negative clauses before checking for positive mutation verbs.
+    mutation_intent = _NEGATED_MUTATION_RE.sub(" ", raw)
+    mutation_intent = _NEGATED_MUTATION_FA_RE.sub(" ", mutation_intent)
+    return not bool(_MUTATION_RE.search(mutation_intent))
 
 
 async def analyze_repository(
