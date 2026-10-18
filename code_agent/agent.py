@@ -23,7 +23,7 @@ MAX_FILE_CHARS = 300_000
 _READ_ONLY_RE = re.compile(
     r"\b(read|summari[sz]e|explain|inspect|analy[sz]e|review|list|count|describe|"
     r"what does|how does|show me|find out|check whether|identify)\b"
-    r"|\b(بخوان|بخواند|خلاصه|بررسی|تحلیل|توضیح|بشمار|شمارش|فهرست|مشخص کن|پیدا کن)\b",
+    r"|\b(بخوان|بخواند|خلاصه|بررسی|برسی|تحلیل|توضیح|بشمار|شمارش|فهرست|مشخص کن|پیدا کن)\b",
     re.IGNORECASE,
 )
 _MUTATION_RE = re.compile(
