@@ -71,7 +71,7 @@ def _safe_path(path: str) -> bool:
 def _requested_branch_name(request: str) -> str | None:
     """Return an explicitly requested, syntactically safe branch name, if present."""
     match = re.search(
-        r"(?:branch|شاخه).{0,60}?(?:با نام|به نام|به اسم|named|called|with name)\\s*`?([A-Za-z0-9._/-]+)",
+        r"(?:branch|شاخه).{0,60}?(?:با نام|به نام|به اسم|named|called|with name)\s*([A-Za-z0-9._/-]+)",
         request,
         flags=re.IGNORECASE,
     )
