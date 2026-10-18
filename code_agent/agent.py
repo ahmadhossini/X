@@ -77,7 +77,7 @@ def _requested_branch_name(request: str) -> str | None:
     )
     if not match:
         return None
-    name = match.group(1).rstrip(".,;:!?)")
+    name = match.group(1).rstrip(",;:!?)")
     components = name.split("/")
     if (
         not name or name.startswith("/") or name.endswith(("/", "."))
