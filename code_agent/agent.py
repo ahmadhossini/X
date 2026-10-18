@@ -36,9 +36,8 @@ _MUTATION_RE = re.compile(
 
 _NEGATED_MUTATION_RE = re.compile(
     r"\b(?:do\s+not|don't|dont)\s+(?:edit|change|modify|update|create|make|add|delete|remove|fix|rewrite|refactor|implement|repair|patch|resolve)\b"
-    r"(?:[^.!?]*?(?:\b(?:or|and)\s+(?:do\s+not\s+|don't\s+|dont\s+)?(?:edit|change|modify|update|create|make|add|delete|remove|fix|rewrite|refactor|implement|repair|patch|resolve)\b[^.!?]*)?)[.!?]?"
+    r"(?:[^.!?]*?\b(?:or|and)\s+(?:(?:do\s+not|don't|dont)\s+)?(?:edit|change|modify|update|create|make|add|delete|remove|fix|rewrite|refactor|implement|repair|patch|resolve)\b[^.!?]*)*[.!?]?"
     r"|\b(?:without|no)\s+(?:any\s+)?(?:file\s+)?(?:changes?|edits?|modifications?|commits?|pull requests?|prs?)\b",
-
     re.IGNORECASE,
 )
 _NEGATED_MUTATION_FA_RE = re.compile(
