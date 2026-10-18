@@ -78,10 +78,12 @@ def _requested_branch_name(request: str) -> str | None:
     if not match:
         return None
     name = match.group(1).rstrip(".,;:!?)")
+    components = name.split("/")
     if (
         not name or name.startswith("/") or name.endswith(("/", "."))
         or ".." in name or "//" in name or "@{" in name
-        or any(char in name for char in " ~^:?*[\\") or name.endswith(".lock")
+        or any(char in name for char in " ~^:?*[\\")
+        or any(not part or part.startswith(".") or part.endswith(".") or part.endswith(".lock") for part in components)
     ):
         raise AgentError("The explicitly requested branch name is not a valid Git branch name")
     return name
