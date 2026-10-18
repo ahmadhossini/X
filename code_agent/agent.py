@@ -21,15 +21,15 @@ MAX_CHANGED_FILES = 8
 MAX_FILE_CHARS = 300_000
 
 _READ_ONLY_RE = re.compile(
-    r"\\b(read|summari[sz]e|explain|inspect|analy[sz]e|review|list|count|describe|"
-    r"what does|how does|show me|find out|check whether|identify)\\b"
-    r"|\\b(بخوان|بخواند|خلاصه|بررسی|تحلیل|توضیح|بشمار|شمارش|فهرست|مشخص کن|پیدا کن)\\b",
+    r"\b(read|summari[sz]e|explain|inspect|analy[sz]e|review|list|count|describe|"
+    r"what does|how does|show me|find out|check whether|identify)\b"
+    r"|\b(بخوان|بخواند|خلاصه|بررسی|تحلیل|توضیح|بشمار|شمارش|فهرست|مشخص کن|پیدا کن)\b",
     re.IGNORECASE,
 )
 _MUTATION_RE = re.compile(
-    r"\\b(fix|change|modify|edit|update|refactor|implement|create|delete|remove|"
-    r"add|rewrite|repair|patch|resolve)\\b"
-    r"|\\b(اصلاح|تغییر|ویرایش|درست کن|بساز|ایجاد کن|حذف|اضافه کن|پیاده‌سازی)\\b",
+    r"\b(fix|change|modify|edit|update|refactor|implement|create|delete|remove|"
+    r"add|rewrite|repair|patch|resolve)\b"
+    r"|\b(اصلاح|تغییر|ویرایش|درست کن|بساز|ایجاد کن|حذف|اضافه کن|پیاده‌سازی)\b",
     re.IGNORECASE,
 )
 
