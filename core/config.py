@@ -46,7 +46,7 @@ class Settings:
     code_agent_queue_size: int = _positive_int("CODE_AGENT_QUEUE_SIZE", 1000, 50, 10000)
     code_agent_job_timeout_seconds: int = _positive_int("CODE_AGENT_JOB_TIMEOUT_SECONDS", 1800, 60, 7200)
     code_agent_stale_task_seconds: int = _positive_int("CODE_AGENT_STALE_TASK_SECONDS", 2100, 120, 14400)
-    free_monthly_credits: int = _positive_int("FREE_MONTHLY_CREDITS", 5, 1, 1000)
+    free_monthly_credits: int = _positive_int("FREE_MONTHLY_CREDITS", 15, 1, 1000)
     pro_monthly_credits: int = _positive_int("PRO_MONTHLY_CREDITS", 500, 10, 100000)
     team_monthly_credits: int = _positive_int("TEAM_MONTHLY_CREDITS", 2000, 10, 1000000)
     ton_wallet_address: str = os.getenv("TON_WALLET_ADDRESS", "").strip()
