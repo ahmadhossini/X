@@ -147,16 +147,25 @@ def _notify(task: Task, success: bool, result: dict | None = None, error: str | 
     lang = task.language if task.language in {"en", "hi", "fa"} else "en"
     result = result or {}
     if success:
-        pr = result.get("pull_request") or {}
-        pr_url = pr.get("url") or ""
-        if lang == "fa":
-            text = f"تغییرات کد آماده شد.\nمخزن: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
-        elif lang == "hi":
-            text = f"Code changes तैयार हैं.\nRepository: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
+        if result.get("status") == "analysis":
+            answer = str(result.get("summary") or "").strip()
+            prefix = {
+                "fa": f"بررسی مخزن {task.repository} انجام شد؛ هیچ فایلی تغییر نکرد.\n\n",
+                "hi": f"Repository {task.repository} का read-only विश्लेषण पूरा हुआ; कोई फ़ाइल नहीं बदली।\n\n",
+                "en": f"Read-only analysis of {task.repository} completed; no files were changed.\n\n",
+            }.get(lang, "")
+            text = prefix + answer
         else:
-            text = f"Code changes are ready.\nRepository: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
-        if pr_url:
-            text += f"\nPR: {pr_url}"
+            pr = result.get("pull_request") or {}
+            pr_url = pr.get("url") or ""
+            if lang == "fa":
+                text = f"تغییرات کد آماده شد.\nمخزن: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
+            elif lang == "hi":
+                text = f"Code changes तैयार हैं.\nRepository: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
+            else:
+                text = f"Code changes are ready.\nRepository: {task.repository}\nBranch: {result.get('branch', '')}\nCommit: {str(result.get('commit', ''))[:12]}"
+            if pr_url:
+                text += f"\nPR: {pr_url}"
     else:
         reason = _failure_reason(error, lang)
         if lang == "fa":
@@ -191,6 +200,11 @@ def _execute_claimed(task: Task, worker_id: str) -> None:
             task.language,
             task.id,
         )
+        if result.get("status") == "analysis":
+            complete_task(task.id, settings.gemini_model)
+            _notify(task, True, result=result)
+            logger.info("Read-only task completed task_id=%s repository=%s", task.id, task.repository)
+            return
         if result.get("status") == "no_changes":
             fail_task(task.id, settings.gemini_model, "no_changes", refund=True)
             _notify(task, False, error="no_changes")

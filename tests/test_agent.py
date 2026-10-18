@@ -1,7 +1,7 @@
 import asyncio
 
 import code_agent.agent as agent
-from code_agent.agent import _branch_name, _output_language, _safe_path
+from code_agent.agent import _branch_name, _output_language, _safe_path, is_read_only_request
 from code_agent.github import GitHubRepoError
 
 
@@ -141,3 +141,13 @@ def test_agent_marks_ambiguous_branch_creation_failure_as_side_effect(monkeypatc
         assert getattr(exc, "side_effects_applied", False) is True
     else:
         raise AssertionError("Expected simulated branch-creation timeout")
+
+
+
+def test_read_only_request_classifier():
+    assert is_read_only_request("Read README.md and summarize the project")
+    assert is_read_only_request("برسی فایل mane.py")
+    assert is_read_only_request("count files in the repository")
+    assert not is_read_only_request("Fix the bug and explain the change")
+    assert not is_read_only_request("modify README.md and summarize it")
+    assert not is_read_only_request("Create a new test file")

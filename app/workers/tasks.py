@@ -66,6 +66,11 @@ async def process_coding_task(ctx: dict[str, Any], task_id: str) -> None:
                 task.language,
                 task.id,
             ))
+            if result.get("status") == "analysis":
+                complete_task(task.id, settings.gemini_model)
+                _notify(task, True, result=result)
+                logger.info("Read-only task completed task_id=%s repository=%s", task.id, task.repository)
+                return
             if result.get("status") == "no_changes":
                 fail_task(task.id, settings.gemini_model, "no_changes", refund=True)
                 _notify(task, False, error="no_changes")
