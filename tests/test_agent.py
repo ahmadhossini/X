@@ -154,6 +154,9 @@ def test_read_only_request_classifier():
         "در پایان نتیجهٔ بررسی را گزارش کن."
     )
     assert is_read_only_request("Review this repository; do not edit files or create commits.")
+    assert is_read_only_request("Review this repository; do not edit files or create commits or pull requests.")
+    assert is_read_only_request("Review the code; do not modify files and do not create a branch.")
+    assert not is_read_only_request("Review the repository and create a test file.")
     assert is_read_only_request("Analyze the code with no file changes and no pull requests.")
     assert not is_read_only_request("Fix the bug and explain the change")
     assert not is_read_only_request("modify README.md and summarize it")
