@@ -37,7 +37,7 @@ _MUTATION_RE = re.compile(
 _NEGATED_MUTATION_RE = re.compile(
     r"\b(?:do not|don['’]?t|dont|without|no)\s+(?:make any\s+)?"
     r"(?:file\s+)?(?:changes?|edits?|modifications?|commits?|pull requests?|prs?)\b"
-    r"|\b(?:do not|don['’]?t|dont)\s+(?:change|edit|modify|update|create|delete|remove|add|commit|open)\b[^.!?;]*"
+    r"|\b(?:do not|don['’]?t|dont)\s+(?:change|edit|modify|update|create|delete|remove|add|commit|open)\b[^.!?]*"
     r"|\bno\s+(?:files?\s+)?(?:changes?|edits?|commits?|pull requests?|prs?)\b",
     re.IGNORECASE,
 )
