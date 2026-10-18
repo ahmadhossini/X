@@ -62,7 +62,7 @@ def init_db() -> None:
             connection.execute(
                 text(
                     "ALTER TABLE users "
-                    "ADD COLUMN credits INTEGER NOT NULL DEFAULT 5"
+                    "ADD COLUMN credits INTEGER NOT NULL DEFAULT 15"
                 )
             )
         if "credits_reset_at" not in columns:
@@ -71,6 +71,32 @@ def init_db() -> None:
                     f"ALTER TABLE users "
                     f"ADD COLUMN credits_reset_at {reset_type} NULL"
                 )
+            )
+
+    # Apply the Free-plan credit increase once to existing accounts. The marker
+    # prevents later restarts from refilling users who have spent credits.
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS app_migrations ("
+                "version VARCHAR(128) PRIMARY KEY, "
+                "applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+            )
+        )
+        applied = connection.execute(
+            text("SELECT version FROM app_migrations WHERE version = :version"),
+            {"version": "free_plan_credits_15"},
+        ).first()
+        if applied is None:
+            connection.execute(
+                text(
+                    "UPDATE users SET credits = 15, credits_reset_at = NULL "
+                    "WHERE plan = 'free' AND credits = 5"
+                )
+            )
+            connection.execute(
+                text("INSERT INTO app_migrations (version) VALUES (:version)"),
+                {"version": "free_plan_credits_15"},
             )
 
     timestamp_type = "DATETIME" if _is_sqlite else "TIMESTAMP WITH TIME ZONE"
