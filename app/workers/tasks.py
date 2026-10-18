@@ -72,6 +72,18 @@ async def process_coding_task(ctx: dict[str, Any], task_id: str) -> None:
                 logger.info("Read-only task completed task_id=%s repository=%s", task.id, task.repository)
                 return
             if result.get("status") == "no_changes":
+                # Log only safe metadata: never log prompts, generated file content, or secrets.
+                summary = result.get("summary", "")
+                logger.warning(
+                    "Coding agent returned no_changes task_id=%s repository=%s model=%s "
+                    "change_count=%s summary_present=%s summary_length=%s",
+                    task.id,
+                    task.repository,
+                    settings.gemini_model,
+                    len(result.get("changes") or []),
+                    bool(summary),
+                    len(summary) if isinstance(summary, str) else -1,
+                )
                 fail_task(task.id, settings.gemini_model, "no_changes", refund=True)
                 _notify(task, False, error="no_changes")
                 return
