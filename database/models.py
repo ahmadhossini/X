@@ -20,7 +20,7 @@ class User(Base):
     github_login: Mapped[str | None] = mapped_column(String(255), nullable=True)
     language: Mapped[str] = mapped_column(String(8), default="en", nullable=False)
     plan: Mapped[str] = mapped_column(String(16), default="free", nullable=False, index=True)
-    credits: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    credits: Mapped[int] = mapped_column(Integer, default=15, nullable=False)
     credits_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
