@@ -206,10 +206,15 @@ UNTRUSTED_REPOSITORY_CONTEXT_END'''
 
     if not isinstance(result, dict):
         raise AgentError("Invalid change plan")
-    summary = str(result.get("summary", "")).strip()
-    changes = result.get("changes", [])
+    if "changes" not in result:
+        raise AgentError("Gemini returned a change plan without the required 'changes' field")
+    summary_value = result.get("summary", "")
+    if not isinstance(summary_value, str):
+        raise AgentError("Gemini returned an invalid change-plan summary")
+    summary = summary_value.strip()
+    changes = result["changes"]
     if not isinstance(changes, list) or len(changes) > MAX_CHANGED_FILES:
-        raise AgentError("Invalid change plan")
+        raise AgentError("Gemini returned an invalid 'changes' field; expected a list of at most 8 entries")
 
     normalized: list[dict[str, Any]] = []
     seen: set[str] = set()
