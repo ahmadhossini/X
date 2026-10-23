@@ -1,4 +1,5 @@
 from app.billing.service import BillingServiceError, _price_for_plan
+from core.config import settings
 
 
 def test_paid_plan_prices_use_explicit_nano_ton_configuration(monkeypatch):
