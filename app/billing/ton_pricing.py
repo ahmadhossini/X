@@ -62,7 +62,7 @@ def get_ton_usd_price(*, force_refresh: bool = False) -> Decimal:
                 raise TonPricingError("TON/USD provider returned stale price data")
         except TonPricingError:
             raise
-        except (httpx.HTTPError, ValueError, TypeError, KeyError, InvalidOperation) as exc:
+        except (httpx.HTTPError, ValueError, TypeError, KeyError, AttributeError, InvalidOperation) as exc:
             raise TonPricingError("Current TON/USD price is temporarily unavailable") from exc
 
         _cached_price_usd = price
