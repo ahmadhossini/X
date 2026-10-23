@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.billing.plans import PLANS
 from app.billing.subscriptions import activate_plan
 from app.billing.ton import TonPaymentIntent, TonPaymentService
+from app.billing.ton_pricing import get_plan_price_nano_ton
 from core.config import settings
 from database.models import Payment, User
 
@@ -19,11 +20,10 @@ class BillingServiceError(RuntimeError):
 
 
 def _price_for_plan(plan_key: str) -> int:
-    if plan_key == "pro":
-        return settings.ton_pro_price_nano_ton
-    if plan_key == "team":
-        return settings.ton_team_price_nano_ton
-    raise BillingServiceError(f"Unsupported paid plan: {plan_key}")
+    plan = PLANS.get(plan_key)
+    if plan is None or plan_key == "free":
+        raise BillingServiceError(f"Unsupported paid plan: {plan_key}")
+    return get_plan_price_nano_ton(plan_key, plan.price_usd)
 
 
 def create_plan_payment(db: Session, user_id: int, plan_key: str) -> TonPaymentIntent:
