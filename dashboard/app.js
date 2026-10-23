@@ -91,5 +91,6 @@
   }
   $('proBtn').addEventListener('click',()=>startPayment('pro'));
   $('teamBtn').addEventListener('click',()=>startPayment('team'));
-  render();loadMe();
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)loadMe()});
+  render();loadMe().then(()=>{if(me?.plan==='pro'||me?.plan==='team'){localStorage.removeItem('xai_pending_payment');localStorage.removeItem('xai_pending_team_payment');const box=$(me.plan==='team'?'teamPaymentResult':'paymentResult');box.hidden=false;box.textContent=me.plan==='team'?(c().confirmedTeam||c().confirmed):(c().confirmedPro||c().confirmed)}});
 })();
