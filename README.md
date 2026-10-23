@@ -37,3 +37,8 @@ Required deployment variables:
 The Toncenter API key is used only by the backend for blockchain verification. Wallet private keys are never stored by XAI Code Agent.
 
 The repository intentionally keeps the coding-agent product separate from legacy Telegram group-management functionality.
+
+
+## Telegram Stars payments
+
+Digital subscriptions inside Telegram use Telegram Stars (`XTR`). Configure the initial prices with `STARS_PRO_AMOUNT` (default `600`) and `STARS_TEAM_AMOUNT` (default `1450`). These are configurable Star amounts, not fixed USD conversions; review pricing before enabling production sales. Payments activate only after the bot receives Telegram's `successful_payment` update. Use `/terms` and `/paysupport` for payment terms and support.
