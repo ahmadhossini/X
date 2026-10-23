@@ -14,7 +14,7 @@ from app.workers.queue import enqueue_coding_task
 from billing.service import BillingError, estimate_task_credits, reserve_task_credits
 from code_agent.github_app import GitHubAppError, github_app_get, github_app_get_installation
 from core.config import settings
-from app.billing.ton_pricing import TonPricingError, get_plan_price_nano_ton
+from app.billing.stars import stars_amount_for_plan
 from database.models import GitHubInstallation, Task, User
 from database.session import SessionLocal
 
@@ -79,13 +79,6 @@ async def me(authorization: str | None = Header(default=None), x_telegram_init_d
             github_avatar_url = account.get("avatar_url")
         except GitHubAppError:
             github_login = installation.github_login
-    try:
-        pro_price_nano_ton = get_plan_price_nano_ton("pro", 12)
-        team_price_nano_ton = get_plan_price_nano_ton("team", 29)
-    except TonPricingError:
-        # Do not display a fabricated price when the market data is unavailable.
-        pro_price_nano_ton = None
-        team_price_nano_ton = None
     return {
         "telegram_id": user.telegram_id,
         "language": user.language,
@@ -94,8 +87,8 @@ async def me(authorization: str | None = Header(default=None), x_telegram_init_d
         "github_connected": github_connected,
         "github_login": github_login,
         "github_avatar_url": github_avatar_url,
-        "ton_pro_price_ton": pro_price_nano_ton / 1_000_000_000 if pro_price_nano_ton is not None else None,
-        "ton_team_price_ton": team_price_nano_ton / 1_000_000_000 if team_price_nano_ton is not None else None,
+        "stars_pro_amount": settings.stars_pro_amount,
+        "stars_team_amount": settings.stars_team_amount,
         "pro_price_usd": 12,
         "team_price_usd": 29,
     }
