@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 from app.billing import service as billing_service
 from app.billing.service import BillingServiceError, _price_for_plan
 
