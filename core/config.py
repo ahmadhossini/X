@@ -51,6 +51,8 @@ class Settings:
     team_monthly_credits: int = _positive_int("TEAM_MONTHLY_CREDITS", 2000, 10, 1000000)
     ton_wallet_address: str = os.getenv("TON_WALLET_ADDRESS", "").strip()
     ton_network: str = os.getenv("TON_NETWORK", "mainnet").strip().lower()
+    stars_pro_amount: int = _positive_int("STARS_PRO_AMOUNT", 600, 1, 1000000)
+    stars_team_amount: int = _positive_int("STARS_TEAM_AMOUNT", 1450, 1, 1000000)
     toncenter_api_key: str = (
         os.getenv("TONCENTER_API_KEY", "").strip()
         or os.getenv("TON_API_KEY", "").strip()
