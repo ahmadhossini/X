@@ -430,6 +430,27 @@ def build_bot() -> TeleBot:
             reply_markup=_main_keyboard(language),
         )
 
+    @bot.message_handler(commands=["paysupport"])
+    def payment_support(message: Message) -> None:
+        language = _language(message.from_user.id) if message.from_user else "en"
+        text = {
+            "fa": "برای مشکلات پرداخت Stars، لطفاً شناسه تلگرام، پلن خریداری‌شده و زمان پرداخت را ارسال کن. اطلاعات محرمانه یا کد ورود را نفرست.",
+            "hi": "For Stars payment support, send your Telegram ID, purchased plan, and payment time. Do not send passwords or login codes.",
+            "en": "For Stars payment support, send your Telegram ID, purchased plan, and payment time. Do not send passwords or login codes.",
+        }
+        bot.reply_to(message, text.get(language, text["en"]))
+
+    @bot.message_handler(commands=["terms"])
+    def payment_terms(message: Message) -> None:
+        language = _language(message.from_user.id) if message.from_user else "en"
+        text = {
+            "fa": "شرایط اشتراک XAI: اشتراک Pro و Team برای ۳۰ روز فعال می‌شود. خدمات دیجیتال پس از تأیید successful_payment در تلگرام فعال می‌شوند. برای مشکلات پرداخت از /paysupport استفاده کن.",
+            "hi": "XAI subscription terms: Pro and Team subscriptions are active for 30 days. Digital services are activated only after Telegram confirms successful_payment. Use /paysupport for payment issues.",
+            "en": "XAI subscription terms: Pro and Team subscriptions are active for 30 days. Digital services are activated only after Telegram confirms successful_payment. Use /paysupport for payment issues.",
+        }
+        bot.reply_to(message, text.get(language, text["en"]))
+
+
     @bot.message_handler(func=lambda message: bool(message.text))
     def menu_buttons(message: Message) -> None:
         if not message.from_user:
@@ -451,24 +472,5 @@ def build_bot() -> TeleBot:
             bot.send_message(message.chat.id, t(language, "menu_home"), reply_markup=_main_keyboard(language), parse_mode="HTML")
 
 
-    @bot.message_handler(commands=["paysupport"])
-    def payment_support(message: Message) -> None:
-        language = _language(message.from_user.id) if message.from_user else "en"
-        text = {
-            "fa": "برای مشکلات پرداخت Stars، لطفاً شناسه تلگرام، پلن خریداری‌شده و زمان پرداخت را ارسال کن. اطلاعات محرمانه یا کد ورود را نفرست.",
-            "hi": "For Stars payment support, send your Telegram ID, purchased plan, and payment time. Do not send passwords or login codes.",
-            "en": "For Stars payment support, send your Telegram ID, purchased plan, and payment time. Do not send passwords or login codes.",
-        }
-        bot.reply_to(message, text.get(language, text["en"]))
-
-    @bot.message_handler(commands=["terms"])
-    def payment_terms(message: Message) -> None:
-        language = _language(message.from_user.id) if message.from_user else "en"
-        text = {
-            "fa": "شرایط اشتراک XAI: اشتراک Pro و Team برای ۳۰ روز فعال می‌شود. خدمات دیجیتال پس از تأیید successful_payment در تلگرام فعال می‌شوند. برای مشکلات پرداخت از /paysupport استفاده کن.",
-            "hi": "XAI subscription terms: Pro and Team subscriptions are active for 30 days. Digital services are activated only after Telegram confirms successful_payment. Use /paysupport for payment issues.",
-            "en": "XAI subscription terms: Pro and Team subscriptions are active for 30 days. Digital services are activated only after Telegram confirms successful_payment. Use /paysupport for payment issues.",
-        }
-        bot.reply_to(message, text.get(language, text["en"]))
 
     return bot
