@@ -14,7 +14,6 @@ from app.workers.queue import enqueue_coding_task
 from billing.service import BillingError, estimate_task_credits, reserve_task_credits
 from code_agent.github_app import GitHubAppError, github_app_get, github_app_get_installation
 from core.config import settings
-from app.billing.stars import stars_amount_for_plan
 from database.models import GitHubInstallation, Task, User
 from database.session import SessionLocal
 
