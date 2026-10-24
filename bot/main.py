@@ -12,6 +12,7 @@ from telebot.types import CallbackQuery, Message
 from api.github_connect import create_connect_state
 from app.workers.queue import enqueue_coding_task
 from billing.service import BillingError, ensure_user_credit_state, estimate_task_credits, reserve_task_credits
+from app.billing.stars import StarsPaymentError, confirm_stars_payment, validate_stars_precheckout
 from bot.locales import t
 from code_agent.github_app import github_app_get
 from core.config import settings
@@ -430,6 +431,89 @@ def build_bot() -> TeleBot:
             reply_markup=_main_keyboard(language),
         )
 
+
+    @bot.pre_checkout_query_handler(func=lambda query: True)
+    def stars_pre_checkout(query) -> None:
+        try:
+            with SessionLocal() as db:
+                valid = validate_stars_precheckout(
+                    db, query.invoice_payload, query.from_user.id, query.currency, query.total_amount
+                )
+            if valid:
+                bot.answer_pre_checkout_query(query.id, ok=True)
+            else:
+                bot.answer_pre_checkout_query(query.id, ok=False, error_message="This invoice is invalid or expired. Please create a new invoice.")
+        except Exception:
+            logger.exception("Telegram Stars pre-checkout validation failed")
+            try:
+                bot.answer_pre_checkout_query(query.id, ok=False, error_message="Payment validation failed. Please try again.")
+            except Exception:
+                logger.exception("Could not reject Telegram Stars pre-checkout")
+
+    @bot.message_handler(content_types=["successful_payment"])
+    def stars_successful_payment(message: Message) -> None:
+        if not message.from_user or not message.successful_payment:
+            return
+        paid = message.successful_payment
+        payload = paid.invoice_payload or ""
+        try:
+            parts = payload.split(":")
+            if len(parts) != 4 or parts[0] != "xai" or int(parts[3]) != message.from_user.id:
+                logger.warning("Ignoring malformed Telegram Stars payload for user_id=%s", message.from_user.id)
+                return
+            payment_id = parts[1]
+            with SessionLocal() as db:
+                confirm_stars_payment(
+                    db,
+                    payment_id=payment_id,
+                    telegram_id=message.from_user.id,
+                    currency=paid.currency,
+                    total_amount=paid.total_amount,
+                    charge_id=paid.telegram_payment_charge_id,
+                    provider_charge_id=paid.provider_payment_charge_id,
+                )
+            language = _language(message.from_user.id)
+            bot.send_message(
+                message.chat.id,
+                "پرداخت Stars تأیید شد و اشتراک فعال شد." if language == "fa"
+                else "Stars payment confirmed and subscription activated.",
+            )
+        except StarsPaymentError as exc:
+            logger.warning("Telegram Stars payment was not activated: %s", exc)
+            bot.send_message(
+                message.chat.id,
+                "پرداخت دریافت شد اما فعال‌سازی نیاز به بررسی پشتیبانی دارد." if _language(message.from_user.id) == "fa"
+                else "Payment received, but activation needs support review.",
+            )
+        except Exception:
+            logger.exception("Telegram Stars successful-payment handler failed")
+            bot.send_message(
+                message.chat.id,
+                "پرداخت دریافت شد اما فعال‌سازی نیاز به بررسی پشتیبانی دارد." if _language(message.from_user.id) == "fa"
+                else "Payment received, but activation needs support review.",
+            )
+
+    @bot.message_handler(commands=["paysupport"])
+    def payment_support(message: Message) -> None:
+        language = _language(message.from_user.id) if message.from_user else "en"
+        text = {
+            "fa": "برای مشکلات پرداخت Stars، لطفاً شناسه تلگرام، پلن خریداری‌شده و زمان پرداخت را ارسال کن. اطلاعات محرمانه یا کد ورود را نفرست.",
+            "hi": "For Stars payment support, send your Telegram ID, purchased plan, and payment time. Do not send passwords or login codes.",
+            "en": "For Stars payment support, send your Telegram ID, purchased plan, and payment time. Do not send passwords or login codes.",
+        }
+        bot.reply_to(message, text.get(language, text["en"]))
+
+    @bot.message_handler(commands=["terms"])
+    def payment_terms(message: Message) -> None:
+        language = _language(message.from_user.id) if message.from_user else "en"
+        text = {
+            "fa": "شرایط اشتراک XAI: اشتراک Pro و Team برای ۳۰ روز فعال می‌شود. خدمات دیجیتال پس از تأیید successful_payment در تلگرام فعال می‌شوند. برای مشکلات پرداخت از /paysupport استفاده کن.",
+            "hi": "XAI subscription terms: Pro and Team subscriptions are active for 30 days. Digital services are activated only after Telegram confirms successful_payment. Use /paysupport for payment issues.",
+            "en": "XAI subscription terms: Pro and Team subscriptions are active for 30 days. Digital services are activated only after Telegram confirms successful_payment. Use /paysupport for payment issues.",
+        }
+        bot.reply_to(message, text.get(language, text["en"]))
+
+
     @bot.message_handler(func=lambda message: bool(message.text))
     def menu_buttons(message: Message) -> None:
         if not message.from_user:
@@ -449,5 +533,7 @@ def build_bot() -> TeleBot:
             disconnect(message)
         elif text == t(language, "brand_button"):
             bot.send_message(message.chat.id, t(language, "menu_home"), reply_markup=_main_keyboard(language), parse_mode="HTML")
+
+
 
     return bot
